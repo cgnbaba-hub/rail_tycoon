@@ -47,7 +47,7 @@ describe('Game clock', () => {
 
   it('emits day, month and year events at the right ticks', () => {
     const g = new Game({ ...defaultMapParams(1), size: 64 }, world);
-    const counts = { day: 0, month: 0, year: 0 };
+    const counts: Record<string, number> = { day: 0, month: 0, year: 0 };
     g.on((e) => counts[e.type]++);
     for (let i = 0; i < DAYS_PER_YEAR * TIME.ticksPerDay; i++) g.step();
     expect(counts.day).toBe(DAYS_PER_YEAR);

@@ -35,10 +35,10 @@ tests/      Vitest specs for sim + pure render math
 
 | # | Name | Playable result |
 |---|------|-----------------|
-| M1 | Engine & map | New-game dialog (seed, size, water, hills, forests, cities, start year). Procedural 64–256² map with corner heightmap, coasts, rivers, forests, mountains, named cities and ~20 industry types rendered in pixel-art iso. Pan (right/middle drag, WASD), wheel zoom (4 levels), Q/E rotate, minimap, hover/inspect panel, date + pause + 1/2/4/8× speed. |
-| M2 | Track & stations | Track tool with A* auto-pathing, slope % + cost preview, single/double track, bridges (3 types), tunnels, bulldoze, undo stack. Stations (3 sizes) with catchment overlay + highlighted industries. Company cash. |
-| M3 | Trains & cargo | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling on track graph, load/unload, revenue formula, fuel/maintenance, breakdowns. |
-| M4 | Economy | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators. |
+| M1 | Engine & map ✅ | New-game dialog (seed, size, water, hills, forests, cities, start year). Procedural 64–256² map with corner heightmap, coasts, rivers, forests, mountains, named cities and ~20 industry types rendered in pixel-art iso. Pan (right/middle drag, WASD), wheel zoom (4 levels), Q/E rotate, minimap, hover/inspect panel, date + pause + 1/2/4/8× speed. |
+| M2 | Track & stations ✅ | Track tool with A* auto-pathing, slope % + cost preview, single/double track, bridges (3 types), tunnels, bulldoze, undo stack. Stations (3 sizes) with catchment overlay + highlighted industries. Company cash. |
+| M3 | Trains & cargo | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling / passing sidings on the track graph, load/unload, revenue formula (+ revenue estimate & payback in the track preview), fuel/maintenance, track maintenance, breakdowns, bridge speed/weight limits. |
+| M4 | Economy | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
 | M5 | Finance | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
 | M7 | Improved UI | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
@@ -61,3 +61,21 @@ Every milestone: `npm test` green, `npm run build` green, commit, short summary.
 - [x] HUD: top bar, tool rail, context panel (hover/inspect), minimap, new-game dialog
 - [x] Runtime-generated pixel TTF font
 - [x] Tests: rng, noise, mapgen invariants/determinism, iso round-trips, clock, rasterizer, font
+
+## M2 detailed checklist
+
+- [x] Track graph: one node per tile centre, 8 directions, ≤45° turns, diagonal-crossing guard
+- [x] Bridges (wooden trestle / stone arch / steel truss from 1870) with span, speed and weight limits
+- [x] Tunnels (straight, max 8 tiles, need cover, gentle grade)
+- [x] A* auto-router over (tile, heading): real money + grade/turn penalties, reuses and joins existing track, time-sliced for live preview
+- [x] Cost model: terrain, earthworks per level climbed, forest clearing, level crossings, demolition, double track
+- [x] Track tool: drag to route, live cost breakdown, length in miles, steepest grade, elevation profile, grade legend
+- [x] Stations: depot / station / terminal (1/2/3 tiles, radius 2/3/4), snap to straight track, R rotates; catchment overlay with covered town buildings and industries highlighted; auto naming
+- [x] Bulldoze (track, whole spans, stations) and Undo (Ctrl+Z, full refund, last 30 actions within 7 in-game days)
+- [x] Company cash + construction ledger; cash in the top bar; toasts
+- [x] Renderer: rails/ballast/ties, double track, bridge decks + pillars + trusses, tunnel portals, buffer stops, station platforms & buildings, station labels; partial chunk invalidation
+- [x] Tests: geometry, planner (bridges, tunnels, hills, demolition, reuse, joins), costs, undo, bulldoze, stations & coverage, rendering
+
+Deferred on purpose: signals/passing sidings need trains (M3); station improvements and
+supply/demand gauges need the economy (M4); route revenue/payback estimates need the
+revenue formula (M3).

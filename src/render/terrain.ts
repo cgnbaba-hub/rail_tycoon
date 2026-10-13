@@ -1,4 +1,5 @@
-import { BUILDINGS, INDUSTRY_BY_ID, type BuildingDef, type LookPart } from '../data';
+import { BUILDINGS, CONSTRUCTION, INDUSTRY_BY_ID, STATION_BY_ID, type BuildingDef, type LookPart } from '../data';
+import { DX, DY, NODE_BRIDGE, NODE_GROUND, NODE_TUNNEL, bitCount, type TrackNode } from '../sim/track';
 import { hash2, hashFloat } from '../sim/rng';
 import {
   F,
@@ -206,12 +207,14 @@ class ChunkPainter {
 
     const nx = rx1 - rx0;
     const ny = ry1 - ry0;
+    // Per depth row: ground, then track (edges are owned by their front-most tile so
+    // diagonal rails are painted after every tile they cross), then standing objects.
     for (let d = 0; d <= nx + ny - 2; d++) {
-      for (let i = 0; i < nx; i++) {
-        const j = d - i;
-        if (j < 0 || j >= ny) continue;
-        this.drawTile(rx0 + i, ry0 + j);
-      }
+      const i0 = Math.max(0, d - ny + 1);
+      const i1 = Math.min(nx - 1, d);
+      for (let i = i0; i <= i1; i++) this.groundTile(rx0 + i, ry0 + d - i);
+      for (let i = i0; i <= i1; i++) this.trackTile(rx0 + i, ry0 + d - i);
+      for (let i = i0; i <= i1; i++) this.objectsTile(rx0 + i, ry0 + d - i);
     }
     return { buf: this.buf };
   }
@@ -280,7 +283,7 @@ class ChunkPainter {
     return 1 + (dot - LIGHT[2]) * SHADE_GAIN;
   }
 
-  private drawTile(rx: number, ry: number): void {
+  private groundTile(rx: number, ry: number): void {
     const world = this.world;
     const [tx, ty] = viewToTile(rx, ry, this.rot, this.W, this.H);
     const ti = world.tileIndex(tx, ty);
@@ -338,19 +341,38 @@ class ChunkPainter {
     if (ry === this.RH - 1) this.skirt(this.P(rx, ry + 1, hW), this.P(rx + 1, ry + 1, hS), this.P(rx + 1, ry + 1, -2), this.P(rx, ry + 1, -2), ter === T.Water, false);
 
     if (ter === T.Water) return;
-
     if (industry) {
       const def = INDUSTRY_BY_ID.get(industry.defId);
       if (def?.look.field) this.fieldStripes(tx, ty, world.vh(tx, ty), def.look.field);
+    } else if (!building && flags & F.Road) {
+      this.drawRoad(tx, ty);
+    }
+  }
+
+  private objectsTile(rx: number, ry: number): void {
+    const world = this.world;
+    const [tx, ty] = viewToTile(rx, ry, this.rot, this.W, this.H);
+    const ti = world.tileIndex(tx, ty);
+    const ter = world.terrain[ti];
+    const flags = world.flags[ti];
+    const occ = world.occupant[ti];
+    const node = world.track.getIdx(ti);
+    if (node && node.kind !== NODE_TUNNEL) {
+      if (node.station >= 0) this.drawStationTile(ti, node);
+      else if (node.kind === NODE_GROUND && bitCount(node.conn) === 1) this.drawBufferStop(ti, node);
+      if (node.kind === NODE_GROUND) return;
+    }
+    if (ter === T.Water) return;
+    if (occupantKind(occ) === OCC_INDUSTRY) {
+      const industry = world.industries[occupantIndex(occ)];
       if (this.isAnchor(rx, ry, industry)) this.drawIndustry(industry);
       return;
     }
-    if (building) {
-      this.drawBuilding(building);
+    if (occupantKind(occ) === OCC_BUILDING) {
+      this.drawBuilding(world.buildings[occupantIndex(occ)]);
       return;
     }
-    if (flags & F.Road) this.drawRoad(tx, ty);
-    if (flags & F.River) return;
+    if (flags & F.River || node) return;
     if (ter === T.Forest) this.drawForest(tx, ty);
     else if (flags & F.Tree) this.drawTree(tx + 0.3 + 0.4 * hashFloat(tx, ty, 41), ty + 0.3 + 0.4 * hashFloat(tx, ty, 43), false);
     else if (ter === T.Rough && hashFloat(tx, ty, 51) < 0.55) this.drawRock(tx, ty, false);
@@ -373,6 +395,229 @@ class ChunkPainter {
     const [a, b] = toView(ind.x, ind.y, this.rot, this.W, this.H);
     const [c, d] = toView(ind.x + ind.w, ind.y + ind.h, this.rot, this.W, this.H);
     return rx === Math.max(a, c) - 1 && ry === Math.max(b, d) - 1;
+  }
+
+  // -- track -----------------------------------------------------------------------------
+
+  private trackTile(rx: number, ry: number): void {
+    const world = this.world;
+    const track = world.track;
+    if (track.size === 0) return;
+    const [tx, ty] = viewToTile(rx, ry, this.rot, this.W, this.H);
+    const ti = world.tileIndex(tx, ty);
+    const node = track.getIdx(ti);
+    if (node && node.kind === NODE_BRIDGE) this.drawPillar(ti, node);
+    if (node && node.kind === NODE_GROUND && node.station >= 0 && node.conn === 0) this.drawLoneStationTrack(ti, node);
+    // Edges whose front-most tile is this one: from W, N, NW, and the NE–SW anti-diagonal.
+    const owned: Array<[number, number, number, number]> = [
+      [rx - 1, ry, rx, ry],
+      [rx, ry - 1, rx, ry],
+      [rx - 1, ry - 1, rx, ry],
+      [rx, ry - 1, rx - 1, ry],
+    ];
+    for (const [ax, ay, bx, by] of owned) {
+      if (ax < 0 || ay < 0 || bx < 0 || by < 0 || ax >= this.RW || bx >= this.RW || ay >= this.RH || by >= this.RH) continue;
+      const [wax, way] = viewToTile(ax, ay, this.rot, this.W, this.H);
+      const [wbx, wby] = viewToTile(bx, by, this.rot, this.W, this.H);
+      const a = world.tileIndex(wax, way);
+      const b = world.tileIndex(wbx, wby);
+      if (track.connected(a, b)) this.drawEdge(a, b);
+    }
+  }
+
+  private center(i: number): [number, number] {
+    return [(i % this.W) + 0.5, Math.floor(i / this.W) + 0.5];
+  }
+
+  private drawEdge(a: number, b: number): void {
+    const track = this.world.track;
+    const na = track.getIdx(a)!;
+    const nb = track.getIdx(b)!;
+    if (na.kind === NODE_TUNNEL && nb.kind === NODE_TUNNEL) return;
+    const dbl = track.isDouble(a, b);
+    const [ax, ay] = this.center(a);
+    const [bx, by] = this.center(b);
+    const mx = (ax + bx) / 2;
+    const my = (ay + by) / 2;
+    const surf = (x: number, y: number) => this.world.surfaceHeight(x, y);
+    if (na.kind === NODE_TUNNEL || nb.kind === NODE_TUNNEL) {
+      const [gx, gy, tz] = na.kind === NODE_TUNNEL ? [bx, by, nb.z] : [ax, ay, na.z];
+      this.rails(gx, gy, tz, mx, my, surf(mx, my), dbl, 'ground', true, false);
+      this.portal(mx, my, surf(mx, my), bx - ax, by - ay);
+      return;
+    }
+    if (na.kind === NODE_BRIDGE || nb.kind === NODE_BRIDGE) {
+      const type = na.kind === NODE_BRIDGE ? na.span : nb.span;
+      this.bridgeDeck(ax, ay, na.z, bx, by, nb.z, dbl, type);
+      return;
+    }
+    this.rails(ax, ay, surf(ax, ay), mx, my, surf(mx, my), dbl, 'ground', true, false);
+    this.rails(mx, my, surf(mx, my), bx, by, surf(bx, by), dbl, 'ground', false, true);
+  }
+
+  private drawLoneStationTrack(i: number, node: TrackNode): void {
+    const st = this.world.stations[node.station];
+    if (!st) return;
+    const [cx, cy] = this.center(i);
+    const [dx, dy] = st.axis === 'x' ? [0.5, 0] : [0, 0.5];
+    this.rails(cx - dx, cy - dy, node.z, cx + dx, cy + dy, node.z, false, 'ground', true, true);
+  }
+
+  /**
+   * Rails from (x0,y0,z0) to (x1,y1,z1) in world units. `extend0/1` push the ballast a
+   * little past node centres so turns don't show gaps.
+   */
+  private rails(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dbl: boolean, bed: 'ground' | 'wood' | 'stone' | 'steel', extend0: boolean, extend1: boolean): void {
+    const tw = this.tw;
+    if (tw < 16) {
+      drawLine(this.buf, ...this.PW(x0, y0, z0), ...this.PW(x1, y1, z1), solid(PAL.night));
+      return;
+    }
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) return;
+    const ux = dx / len;
+    const uy = dy / len;
+    const nx = -uy;
+    const ny = ux;
+    const hw = dbl ? 0.31 : 0.17;
+    const e0 = extend0 ? hw * 0.6 : 0;
+    const e1 = extend1 ? hw * 0.6 : 0;
+    const pt = (along: number, off: number, z: number): [number, number] => this.PW(x0 + ux * along + nx * off, y0 + uy * along + ny * off, z);
+    const zAt = (along: number) => z0 + ((z1 - z0) * along) / len;
+    if (bed === 'ground') {
+      this.poly(solid(PAL.shale), pt(-e0, -hw, z0), pt(len + e1, -hw, z1), pt(len + e1, hw, z1), pt(-e0, hw, z0));
+    }
+    const tracks = dbl ? [-0.15, 0.15] : [0];
+    const tie = solid(bed === 'steel' ? PAL.night : PAL.loam);
+    const rail = solid(PAL.fog);
+    const ties = Math.max(1, Math.round(len * (tw >= 32 ? 4 : 3)));
+    for (const off of tracks) {
+      for (let k = 0; k < ties; k++) {
+        const along = ((k + 0.5) * len) / ties;
+        const z = zAt(along);
+        drawLine(this.buf, ...pt(along, off - 0.12, z), ...pt(along, off + 0.12, z), tie);
+      }
+      for (const r of [-0.065, 0.065]) drawLine(this.buf, ...pt(0, off + r, z0), ...pt(len, off + r, z1), rail);
+    }
+  }
+
+  private bridgeDeck(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dbl: boolean, type: number): void {
+    const def = CONSTRUCTION.bridges[type] ?? CONSTRUCTION.bridges[0];
+    const deckColor = def.id === 'wood' ? PAL.soil : def.id === 'stone' ? PAL.stone : PAL.slate;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const hw = dbl ? 0.32 : 0.2;
+    const P = (x: number, y: number, z: number) => this.PW(x, y, z);
+    // Front fascia: the deck edge nearer the viewer.
+    const [va, vb] = toView(x0 + nx, y0 + ny, this.rot, this.W, this.H);
+    const [vc, vd] = toView(x0 - nx, y0 - ny, this.rot, this.W, this.H);
+    const s = va + vb > vc + vd ? 1 : -1;
+    const drop = 0.75;
+    this.poly(solid(DARKER[deckColor]), P(x0 + nx * hw * s, y0 + ny * hw * s, z0), P(x1 + nx * hw * s, y1 + ny * hw * s, z1), P(x1 + nx * hw * s, y1 + ny * hw * s, z1 - drop), P(x0 + nx * hw * s, y0 + ny * hw * s, z0 - drop));
+    this.poly(solid(deckColor), P(x0 - nx * hw, y0 - ny * hw, z0), P(x1 - nx * hw, y1 - ny * hw, z1), P(x1 + nx * hw, y1 + ny * hw, z1), P(x0 + nx * hw, y0 + ny * hw, z0));
+    this.rails(x0, y0, z0, x1, y1, z1, dbl, def.id as 'wood' | 'stone' | 'steel', false, false);
+    if (this.tw < 16) return;
+    const railH = def.id === 'steel' ? 2.5 : 0.6;
+    const c = solid(def.id === 'steel' ? PAL.steel : def.id === 'stone' ? PAL.fog : PAL.loam);
+    for (const side of [-1, 1]) {
+      const ox = nx * hw * side;
+      const oy = ny * hw * side;
+      drawLine(this.buf, ...P(x0 + ox, y0 + oy, z0 + railH), ...P(x1 + ox, y1 + oy, z1 + railH), c);
+      if (def.id === 'steel') {
+        const n = Math.max(2, Math.round(len * 2));
+        for (let k = 0; k <= n; k++) {
+          const f = k / n;
+          const px = x0 + dx * f + ox;
+          const py = y0 + dy * f + oy;
+          const pz = z0 + (z1 - z0) * f;
+          drawLine(this.buf, ...P(px, py, pz), ...P(px, py, pz + railH), c);
+          if (k < n) {
+            const g = (k + 1) / n;
+            drawLine(this.buf, ...P(px, py, pz), ...P(x0 + dx * g + ox, y0 + dy * g + oy, z0 + (z1 - z0) * g + railH), c);
+          }
+        }
+      }
+    }
+  }
+
+  private drawPillar(i: number, node: TrackNode): void {
+    const def = CONSTRUCTION.bridges[node.span] ?? CONSTRUCTION.bridges[0];
+    const wet = this.world.terrain[i] === T.Water || (this.world.flags[i] & F.River) !== 0;
+    const ground = wet ? 0 : this.world.surfaceHeight((i % this.W) + 0.5, Math.floor(i / this.W) + 0.5);
+    const top = node.z - 0.75;
+    if (top <= ground) return;
+    const [cx, cy] = this.center(i);
+    const size = def.id === 'stone' ? 0.13 : def.id === 'steel' ? 0.08 : 0.05;
+    const color = def.id === 'wood' ? PAL.loam : def.id === 'stone' ? PAL.stone : PAL.slate;
+    const [vx0, vy0, vx1, vy1] = this.viewRect(cx - size, cy - size, cx + size, cy + size);
+    this.box(vx0, vy0, vx1, vy1, ground, top, color, color, 'flat', 0, -1);
+  }
+
+  private portal(x: number, y: number, z: number, dx: number, dy: number): void {
+    const len = Math.hypot(dx, dy);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const P = (o: number, h: number) => this.PW(x + nx * o, y + ny * o, z + h);
+    this.poly(solid(PAL.stone), P(-0.27, 0), P(0.27, 0), P(0.27, 1.9), P(-0.27, 1.9));
+    this.poly(solid(PAL.ink), P(-0.16, 0), P(0.16, 0), P(0.16, 1.3), P(0, 1.55), P(-0.16, 1.3));
+  }
+
+  private drawBufferStop(i: number, node: TrackNode): void {
+    if (this.tw < 16) return;
+    let d = 0;
+    while (!(node.conn & (1 << d))) d++;
+    const [cx, cy] = this.center(i);
+    // Sits just past the centre, on the dead-end side.
+    const bx = cx - DX[d] * 0.18;
+    const by = cy - DY[d] * 0.18;
+    const [vx0, vy0, vx1, vy1] = this.viewRect(bx - 0.09, by - 0.09, bx + 0.09, by + 0.09);
+    this.box(vx0, vy0, vx1, vy1, node.z, node.z + 1, PAL.brick, PAL.oxblood, 'flat', 0, -1);
+  }
+
+  private drawStationTile(i: number, node: TrackNode): void {
+    const st = this.world.stations[node.station];
+    if (!st) return;
+    const def = STATION_BY_ID.get(st.kind);
+    if (!def) return;
+    const [cx, cy] = this.center(i);
+    const along: [number, number] = st.axis === 'x' ? [1, 0] : [0, 1];
+    const perp: [number, number] = st.axis === 'x' ? [0, st.side] : [st.side, 0];
+    const z = node.z;
+    // Platform strip on the building side.
+    {
+      const p0 = 0.19;
+      const p1 = 0.33;
+      const ax = cx - along[0] * 0.5 + perp[0] * p0;
+      const ay = cy - along[1] * 0.5 + perp[1] * p0;
+      const bx = cx + along[0] * 0.5 + perp[0] * p1;
+      const by = cy + along[1] * 0.5 + perp[1] * p1;
+      const [vx0, vy0, vx1, vy1] = this.viewRect(Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by));
+      this.box(vx0, vy0, vx1, vy1, z, z + 0.5, PAL.stone, PAL.fog, 'flat', 0, -1);
+    }
+    const mid = st.tiles[Math.floor(st.tiles.length / 2)];
+    if (i !== mid) return;
+    const L = def.look;
+    const off = 0.5 - L.w / 2 - 0.02;
+    const bx = cx + perp[0] * off;
+    const by = cy + perp[1] * off;
+    const hx = (along[0] * L.l + Math.abs(perp[0]) * L.w) / 2;
+    const hy = (along[1] * L.l + Math.abs(perp[1]) * L.w) / 2;
+    const [vx0, vy0, vx1, vy1] = this.viewRect(bx - hx, by - hy, bx + hx, by + hy);
+    const ridgeAlongX = st.axis === 'x';
+    const roofType = ridgeAlongX === (this.rot % 2 === 0) ? 'ridgeRx' : 'ridgeRy';
+    const wall = colorIndex(L.wall);
+    this.box(vx0, vy0, vx1, vy1, z, z + L.h / 4, wall, colorIndex(L.roof), roofType, 1.25, PAL.gold);
+    if (L.tower) {
+      const tx0 = bx - along[0] * (L.l / 2 - 0.08);
+      const ty0 = by - along[1] * (L.l / 2 - 0.08);
+      const [wx0, wy0, wx1, wy1] = this.viewRect(tx0 - 0.08, ty0 - 0.08, tx0 + 0.08, ty0 + 0.08);
+      this.box(wx0, wy0, wx1, wy1, z, z + L.tower / 4, wall, PAL.slate, 'pyramid', 1.5, PAL.cream);
+    }
   }
 
   // -- decorations ------------------------------------------------------------------------

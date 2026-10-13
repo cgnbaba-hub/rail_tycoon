@@ -1,4 +1,6 @@
 import type { TerrainName } from '../data';
+import type { Station } from './station';
+import { TrackNetwork } from './track';
 
 /** Tile terrain ids (stored in World.terrain). */
 export const T = {
@@ -66,6 +68,8 @@ export interface Building {
   h: number;
   /** Two small buildings share the tile. */
   pair: boolean;
+  /** Torn down (e.g. for a railway). The record stays so undo can restore it. */
+  demolished?: boolean;
 }
 
 export interface Industry {
@@ -105,8 +109,13 @@ export class World {
   cities: City[] = [];
   buildings: Building[] = [];
   industries: Industry[] = [];
-  /** Bumped whenever tiles change; renderers use it to invalidate caches. */
+  readonly track: TrackNetwork;
+  /** Stations by id; removed stations leave a null hole so ids stay stable. */
+  stations: Array<Station | null> = [];
+  /** Bumped when the whole world is replaced/regenerated (full cache flush). */
   revision = 0;
+  /** Tiles changed since the renderer last looked (partial cache invalidation). */
+  readonly dirty = new Set<number>();
 
   constructor(width: number, height: number, maxHeight: number) {
     this.width = width;
@@ -116,6 +125,19 @@ export class World {
     this.terrain = new Uint8Array(width * height);
     this.flags = new Uint8Array(width * height);
     this.occupant = new Int32Array(width * height);
+    this.track = new TrackNetwork(width, height);
+  }
+
+  /** Incremented on every tile change; lets cached plans detect that the world moved on. */
+  editVersion = 0;
+
+  markDirty(tileIdx: number): void {
+    this.dirty.add(tileIdx);
+    this.editVersion++;
+  }
+
+  liveStations(): Station[] {
+    return this.stations.filter((s): s is Station => s !== null);
   }
 
   inBounds(x: number, y: number): boolean {

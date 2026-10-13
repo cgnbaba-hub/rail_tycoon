@@ -12,6 +12,10 @@ const ICONS: Record<string, string[]> = {
   newmap: ['XXXXXXX..', 'X.....X..', 'X.XX..X..', 'X.XXX.XXX', 'X..X..X.X', 'X.....XXX', 'XXXXXXX..', '.........', '.........'],
   close: ['X.......X', '.X.....X.', '..X...X..', '...X.X...', '....X....', '...X.X...', '..X...X..', '.X.....X.', 'X.......X'],
   pin: ['...XXX...', '..XXXXX..', '..XXXXX..', '...XXX...', '..XXXXX..', '....X....', '....X....', '....X....', '.........'],
+  track: ['X.X....X.', 'XXXXXXXXX', 'X.X...X.X', 'X.X...X.X', 'XXXXXXXXX', 'X.X...X.X', 'X.X...X.X', 'XXXXXXXXX', '.X....X.X'],
+  station: ['....X....', '...XXX...', '..XXXXX..', '.XXXXXXX.', '..X...X..', '..X.X.X..', '..X.X.X..', 'XXXXXXXXX', 'X.......X'],
+  bulldoze: ['.........', '.XXXX....', '.X..X....', '.XXXXXXX.', 'XXXXXXXX.', 'XX.XX.XX.', '.XXXXXXX.', '.......XX', '......XXX'],
+  undo: ['..X......', '.XX......', 'XXXXXXX..', '.XX....X.', '..X.....X', '........X', '.......X.', '..XXXXX..', '.........'],
   center: ['....X....', '....X....', '..XXXXX..', '..X...X..', 'XXX.X.XXX', '..X...X..', '..XXXXX..', '....X....', '....X....'],
 };
 

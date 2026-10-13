@@ -14,6 +14,7 @@
       <header id="topbar">
         <div class="brand" aria-label="Iron Baron">IRON BARON</div>
         <div class="date" id="date" aria-live="polite">—</div>
+        <div class="money" data-tip="Company cash" id="cash-wrap"><span class="label" id="company"></span><span id="cash">$0</span></div>
         <div class="speed" role="group" aria-label="Game speed" id="speed"></div>
         <div class="spacer"></div>
         <div class="seed" id="seed"></div>
@@ -33,6 +34,7 @@
 
       <div id="status"></div>
       <div id="tooltip" role="tooltip" hidden></div>
+      <div id="toasts" aria-live="polite"></div>
       <div id="modal-root"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>

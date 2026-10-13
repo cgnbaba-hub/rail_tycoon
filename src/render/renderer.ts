@@ -1,7 +1,9 @@
+import type { TrackPlan } from '../sim/construction';
+import { NODE_TUNNEL } from '../sim/track';
 import type { World } from '../sim/world';
 import { drawText, measureText, TEXT_HEIGHT } from './bitmapText';
 import type { Camera } from './camera';
-import { project, rotatedSize } from './iso';
+import { project, rotatedSize, tileToView, type Rot } from './iso';
 import { PALETTE } from './palette';
 import { pickTile } from './pick';
 import { CHUNK, WorldRenderData, renderChunk } from './terrain';
@@ -12,16 +14,40 @@ interface CachedChunk {
   oy: number;
   bytes: number;
   used: number;
+  /** World changed under this chunk; keep drawing it until the rebuild is done. */
+  stale: boolean;
 }
 
 export interface Highlight {
   /** World tile rect [x, y, w, h]. */
   rect: [number, number, number, number];
   color: string;
+  /** Draw every other pixel run (a pattern, so meaning isn't carried by colour alone). */
+  dashed?: boolean;
+}
+
+/** Transient drawings requested by the active tool. */
+export interface Overlay {
+  plan?: TrackPlan | null;
+  /** Dim the plan (e.g. unaffordable or still searching). */
+  planDim?: boolean;
+  highlights: Highlight[];
 }
 
 const CACHE_BUDGET_BYTES = 192 * 1024 * 1024;
 const BUILD_BUDGET_MS = 12;
+
+/** Grade classes for the route preview: colour + label. */
+export const GRADE_CLASSES = [
+  { max: 1, color: PALETTE.meadow, label: '≤1%' },
+  { max: 2, color: PALETTE.gold, label: '≤2%' },
+  { max: 3.5, color: PALETTE.ember, label: '≤3.5%' },
+  { max: Infinity, color: PALETTE.tile, label: '>3.5%' },
+];
+
+export function gradeClass(gradeAbs: number): number {
+  return GRADE_CLASSES.findIndex((g) => gradeAbs <= g.max);
+}
 
 /**
  * Composes a frame: cached terrain chunks (back to front), then dynamic overlays.
@@ -39,8 +65,11 @@ export class Renderer {
   showLabels = true;
   hover: Highlight | null = null;
   selection: Highlight | null = null;
+  overlay: Overlay = { highlights: [] };
   /** Number of chunks still missing after the last frame (for a loading hint). */
   pendingChunks = 0;
+  /** Incremented whenever world tiles changed (minimap etc. can refresh). */
+  changeCounter = 0;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -52,7 +81,9 @@ export class Renderer {
     this.world = world;
     this.data = new WorldRenderData(world);
     this.worldRevision = world.revision;
+    world.dirty.clear();
     this.clearCache();
+    this.changeCounter++;
   }
 
   clearCache(): void {
@@ -75,6 +106,7 @@ export class Renderer {
 
   render(camera: Camera, time: number): void {
     if (this.world.revision !== this.worldRevision) this.setWorld(this.world);
+    this.processDirty();
     this.frame++;
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
@@ -84,10 +116,45 @@ export class Renderer {
     camera.viewH = this.canvas.height;
 
     this.drawChunks(camera);
+    for (const h of this.overlay.highlights) this.drawHighlight(camera, h);
     if (this.selection) this.drawHighlight(camera, this.selection);
     if (this.hover) this.drawHighlight(camera, this.hover);
+    if (this.overlay.plan?.ok) this.drawPlan(camera, this.overlay.plan, !!this.overlay.planDim);
     this.drawSmoke(camera, time);
-    if (this.showLabels) this.drawCityLabels(camera);
+    if (this.showLabels) {
+      this.drawCityLabels(camera);
+      this.drawStationLabels(camera);
+    }
+  }
+
+  /** Mark cached chunks around changed tiles as stale (all rotations and zooms). */
+  private processDirty(): void {
+    const dirty = this.world.dirty;
+    if (dirty.size === 0) return;
+    const W = this.world.width;
+    const H = this.world.height;
+    const affected = new Set<string>();
+    for (const t of dirty) {
+      const x = t % W;
+      const y = Math.floor(t / W);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          for (let rot = 0; rot < 4; rot++) {
+            const [rx, ry] = tileToView(nx, ny, rot as Rot, W, H);
+            affected.add(`${Math.floor(rx / CHUNK)},${Math.floor(ry / CHUNK)},${rot}`);
+          }
+        }
+      }
+    }
+    for (const [key, c] of this.cache) {
+      const parts = key.split(',');
+      if (affected.has(`${parts[0]},${parts[1]},${parts[2]}`)) c.stale = true;
+    }
+    dirty.clear();
+    this.changeCounter++;
   }
 
   private drawChunks(camera: Camera): void {
@@ -118,18 +185,21 @@ export class Renderer {
       }
     }
 
-    // Build missing chunks nearest-first within a time budget.
+    // Build missing chunks first, then refresh stale ones, nearest-first within a budget.
     const start = performance.now();
     let missing = 0;
     const byDist = [...visible].sort((a, b) => a.dist - b.dist);
-    for (const v of byDist) {
-      const key = this.key(v.cx, v.cy, rot, tw);
-      if (this.cache.has(key)) continue;
-      if (performance.now() - start > BUILD_BUDGET_MS) {
-        missing++;
-        continue;
+    for (const pass of [0, 1]) {
+      for (const v of byDist) {
+        const key = this.key(v.cx, v.cy, rot, tw);
+        const c = this.cache.get(key);
+        if (pass === 0 ? c : !c?.stale) continue;
+        if (performance.now() - start > BUILD_BUDGET_MS) {
+          missing++;
+          continue;
+        }
+        this.buildChunk(key, v.cx, v.cy, rot, tw);
       }
-      this.buildChunk(key, v.cx, v.cy, rot, tw);
     }
     this.pendingChunks = missing;
 
@@ -148,15 +218,17 @@ export class Renderer {
     return `${cx},${cy},${rot},${tw},${this.showGrid ? 1 : 0}`;
   }
 
-  private buildChunk(key: string, cx: number, cy: number, rot: 0 | 1 | 2 | 3, tw: number): void {
+  private buildChunk(key: string, cx: number, cy: number, rot: Rot, tw: number): void {
     const { buf } = renderChunk(this.data, rot, tw, cx, cy, { grid: this.showGrid });
+    const old = this.cache.get(key);
+    if (old) this.cacheBytes -= old.bytes;
     const canvas = document.createElement('canvas');
     canvas.width = buf.w;
     canvas.height = buf.h;
     const cctx = canvas.getContext('2d')!;
     cctx.putImageData(new ImageData(new Uint8ClampedArray(buf.data.buffer as ArrayBuffer), buf.w, buf.h), 0, 0);
     const bytes = buf.w * buf.h * 4;
-    this.cache.set(key, { canvas, ox: buf.ox, oy: buf.oy, bytes, used: this.frame });
+    this.cache.set(key, { canvas, ox: buf.ox, oy: buf.oy, bytes, used: this.frame, stale: false });
     this.cacheBytes += bytes;
   }
 
@@ -170,8 +242,8 @@ export class Renderer {
     }
   }
 
-  /** Aliased 1px line in buffer space. */
-  private pixelLine(x0: number, y0: number, x1: number, y1: number, color: string): void {
+  /** Aliased 1px line in buffer space; `dash` skips every other 2px run. */
+  private pixelLine(x0: number, y0: number, x1: number, y1: number, color: string, dash = false): void {
     const ctx = this.ctx;
     ctx.fillStyle = color;
     let xa = Math.round(x0);
@@ -183,8 +255,8 @@ export class Renderer {
     const sx = xa < xb ? 1 : -1;
     const sy = ya < yb ? 1 : -1;
     let err = dx + dy;
-    for (let guard = 0; guard < 4096; guard++) {
-      ctx.fillRect(xa, ya, 1, 1);
+    for (let n = 0; n < 4096; n++) {
+      if (!dash || (n & 2) === 0) ctx.fillRect(xa, ya, 1, 1);
       if (xa === xb && ya === yb) break;
       const e2 = 2 * err;
       if (e2 >= dy) {
@@ -201,12 +273,13 @@ export class Renderer {
   private drawHighlight(camera: Camera, hl: Highlight): void {
     const world = this.world;
     const [x, y, w, h] = hl.rect;
-    // Outline every edge on the rect perimeter, following the terrain.
     const P = (vx: number, vy: number) => camera.worldToScreen(vx, vy, world.vh(vx, vy));
     const edge = (ax: number, ay: number, bx: number, by: number) => {
       const [sx0, sy0] = P(ax, ay);
       const [sx1, sy1] = P(bx, by);
-      this.pixelLine(sx0, sy0 - 1, sx1, sy1 - 1, hl.color);
+      if (Math.max(sx0, sx1) < -2 || Math.min(sx0, sx1) > this.canvas.width + 2) return;
+      if (Math.max(sy0, sy1) < -2 || Math.min(sy0, sy1) > this.canvas.height + 2) return;
+      this.pixelLine(sx0, sy0 - 1, sx1, sy1 - 1, hl.color, hl.dashed);
     };
     for (let i = 0; i < w; i++) {
       edge(x + i, y, x + i + 1, y);
@@ -215,6 +288,35 @@ export class Renderer {
     for (let j = 0; j < h; j++) {
       edge(x, y + j, x, y + j + 1);
       edge(x + w, y + j, x + w, y + j + 1);
+    }
+  }
+
+  /** Route preview: centre line per step, coloured by grade class; bridges/tunnels dashed. */
+  private drawPlan(camera: Camera, plan: TrackPlan, dim: boolean): void {
+    const W = this.world.width;
+    const c = (i: number): [number, number] => [(i % W) + 0.5, Math.floor(i / W) + 0.5];
+    const lift = 0.5;
+    for (const st of plan.steps) {
+      const [ax, ay] = c(st.from);
+      const [bx, by] = c(st.to);
+      const color = dim ? PALETTE.steel : st.kind === 'reuse' && !st.upgrade ? PALETTE.fog : GRADE_CLASSES[gradeClass(Math.abs(st.grade))].color;
+      const [sx0, sy0] = camera.worldToScreen(ax, ay, st.z0 + lift);
+      const [sx1, sy1] = camera.worldToScreen(bx, by, st.z1 + lift);
+      const dash = st.kind === 'tunnel' || st.kind === 'bridge';
+      this.pixelLine(sx0, sy0, sx1, sy1, color, dash);
+      this.pixelLine(sx0, sy0 - 1, sx1, sy1 - 1, color, dash && st.kind === 'tunnel');
+    }
+    const ends: Array<[number, number]> = [
+      [plan.from, plan.profile[0]?.z ?? 0],
+      [plan.to, plan.profile[plan.profile.length - 1]?.z ?? 0],
+    ];
+    for (const [i, z] of ends) {
+      const [x, y] = c(i);
+      const [sx, sy] = camera.worldToScreen(x, y, z + lift);
+      this.ctx.fillStyle = PALETTE.ink;
+      this.ctx.fillRect(Math.round(sx) - 2, Math.round(sy) - 3, 5, 5);
+      this.ctx.fillStyle = PALETTE.snow;
+      this.ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 2, 3, 3);
     }
   }
 
@@ -238,22 +340,38 @@ export class Renderer {
     }
   }
 
-  private drawCityLabels(camera: Camera): void {
+  private label(x: number, y: number, text: string, fg: string, bg: string, rule: string): void {
+    const w = measureText(text);
+    const lx = Math.round(x - w / 2);
+    const ly = Math.round(y);
+    if (lx > this.canvas.width || ly > this.canvas.height || lx + w < 0 || ly + 12 < 0) return;
     const ctx = this.ctx;
+    ctx.fillStyle = bg;
+    ctx.fillRect(lx - 3, ly - 3, w + 6, TEXT_HEIGHT + 6);
+    ctx.fillStyle = rule;
+    ctx.fillRect(lx - 3, ly + TEXT_HEIGHT + 2, w + 6, 1);
+    drawText(ctx, text, lx, ly, fg);
+  }
+
+  private drawCityLabels(camera: Camera): void {
     for (const city of this.world.cities) {
       if (camera.zoom === 0 && city.classIndex === 0) continue;
       const z = this.world.vh(city.x, city.y);
       const [sx, sy] = camera.worldToScreen(city.x + 0.5, city.y + 0.5, z);
-      const label = city.name;
-      const w = measureText(label);
-      const lx = Math.round(sx - w / 2);
-      const ly = Math.round(sy - 26 * (camera.tw / 32) * camera.scale - 14);
-      if (lx > this.canvas.width || ly > this.canvas.height || lx + w < 0 || ly + 12 < 0) continue;
-      ctx.fillStyle = PALETTE.ink;
-      ctx.fillRect(lx - 3, ly - 3, w + 6, TEXT_HEIGHT + 6);
-      ctx.fillStyle = city.classIndex >= 2 ? PALETTE.gold : PALETTE.fog;
-      ctx.fillRect(lx - 3, ly + TEXT_HEIGHT + 2, w + 6, 1);
-      drawText(ctx, label, lx, ly, PALETTE.bone);
+      const y = sy - 26 * (camera.tw / 32) * camera.scale - 14;
+      this.label(sx, y, city.name, PALETTE.bone, PALETTE.ink, city.classIndex >= 2 ? PALETTE.gold : PALETTE.fog);
+    }
+  }
+
+  private drawStationLabels(camera: Camera): void {
+    if (camera.tw < 16) return;
+    const W = this.world.width;
+    for (const st of this.world.liveStations()) {
+      const mid = st.tiles[Math.floor(st.tiles.length / 2)];
+      const node = this.world.track.getIdx(mid);
+      if (!node || node.kind === NODE_TUNNEL) continue;
+      const [sx, sy] = camera.worldToScreen((mid % W) + 0.5, Math.floor(mid / W) + 0.5, node.z);
+      this.label(sx, sy + 6 * camera.scale, st.name, PALETTE.cream, PALETTE.oxblood, PALETTE.gold);
     }
   }
 }

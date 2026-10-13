@@ -1,4 +1,8 @@
-import { BUILDINGS, CARGO_BY_ID, INDUSTRY_BY_ID, MAPGEN } from '../data';
+import { BUILDINGS, CARGO_BY_ID, CONSTRUCTION, INDUSTRY_BY_ID, MAPGEN } from '../data';
+import type { Highlight } from '../render/renderer';
+import { gradePercent } from '../sim/construction';
+import { catchmentRect, stationCoverage, stationDef } from '../sim/station';
+import { DIR_NAMES, NODE_BRIDGE, NODE_TUNNEL, bitCount, stepLength } from '../sim/track';
 import { PALETTE, type PaletteName } from '../render/palette';
 import {
   F,
@@ -13,8 +17,8 @@ import {
 } from '../sim/world';
 import { esc, fmtInt } from './dom';
 
-/** Feet per height level, for display only. */
-export const FEET_PER_LEVEL = 80;
+/** Feet per height level (shared with the grade formula). */
+export const FEET_PER_LEVEL = CONSTRUCTION.feetPerLevel;
 
 const BUILDING_LABEL: Record<string, string> = {
   cottage: 'Cottages',
@@ -28,10 +32,12 @@ const BUILDING_LABEL: Record<string, string> = {
 
 export interface Inspection {
   title: string;
-  kind: 'terrain' | 'city' | 'industry';
+  kind: 'terrain' | 'city' | 'industry' | 'track' | 'station';
   /** Tile rect to highlight [x, y, w, h]. */
   rect: [number, number, number, number];
   html: string;
+  /** Extra outlines (e.g. a station's catchment). */
+  extraHighlights?: Highlight[];
 }
 
 function cargoChip(id: string): string {
@@ -59,6 +65,7 @@ function cityHtml(world: World, city: City): string {
   const counts = new Map<string, number>();
   for (const id of city.buildingIds) {
     const b = world.buildings[id];
+    if (b.demolished) continue;
     counts.set(b.defId, (counts.get(b.defId) ?? 0) + 1);
   }
   const mix = BUILDINGS.filter((b) => counts.has(b.id))
@@ -87,7 +94,65 @@ function industryHtml(world: World, ind: Industry): string {
   );
 }
 
+function trackInspection(world: World, x: number, y: number): Inspection | null {
+  const i = world.tileIndex(x, y);
+  const node = world.track.getIdx(i);
+  if (!node) return null;
+  if (node.station >= 0) {
+    const st = world.stations[node.station]!;
+    const def = stationDef(st.kind);
+    const cov = stationCoverage(world, st);
+    const r = catchmentRect(world, st.tiles, def.radius);
+    const W = world.width;
+    const xs = st.tiles.map((t) => t % W);
+    const ys = st.tiles.map((t) => Math.floor(t / W));
+    const x0 = Math.min(...xs);
+    const y0 = Math.min(...ys);
+    const towns = cov.cities.map((c) => `${esc(c.city.name)} ${fmtInt(c.population)}`).join(', ') || '—';
+    const inds = cov.industries.map((ind) => esc(INDUSTRY_BY_ID.get(ind.defId)!.name)).join(', ') || '—';
+    return {
+      title: `${st.name} ${def.name}`,
+      kind: 'station',
+      rect: [x0, y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1],
+      extraHighlights: [{ rect: [r[0], r[1], r[2] - r[0] + 1, r[3] - r[1] + 1], color: PALETTE.sky, dashed: true }],
+      html:
+        row('Size', `${esc(def.name)} · ${def.length} tile${def.length > 1 ? 's' : ''}`) +
+        row('Catchment', `radius ${def.radius}`) +
+        row('Towns served', towns) +
+        row('Industries', inds) +
+        `<p class="hint">Cargo supply & demand gauges arrive with trains and the economy.</p>`,
+    };
+  }
+  const grades: string[] = [];
+  for (let d = 0; d < 8; d++) {
+    if (!(node.conn & (1 << d))) continue;
+    const n = world.track.getIdx(world.track.neighbor(i, d));
+    if (!n) continue;
+    const g = gradePercent(n.z - node.z, stepLength(d));
+    grades.push(`${DIR_NAMES[d]} ${g >= 0 ? '+' : ''}${g.toFixed(1)}%`);
+  }
+  const kind =
+    node.kind === NODE_BRIDGE ? CONSTRUCTION.bridges[node.span]?.name ?? 'Bridge' : node.kind === NODE_TUNNEL ? 'Tunnel' : 'Track';
+  const conns = bitCount(node.conn);
+  const dbl = node.double !== 0 && node.double === node.conn ? 'Double' : node.double ? 'Mixed' : 'Single';
+  const bridge = node.kind === NODE_BRIDGE ? CONSTRUCTION.bridges[node.span] : undefined;
+  return {
+    title: kind,
+    kind: 'track',
+    rect: [x, y, 1, 1],
+    html:
+      row('Line', dbl) +
+      row('Layout', conns >= 3 ? `Junction (${conns} ways)` : conns === 1 ? 'Dead end' : 'Through') +
+      row('Track height', `${fmtInt(node.z * FEET_PER_LEVEL)} ft`) +
+      row('Grades', grades.join(', ') || '—') +
+      (bridge ? row('Limits', `${bridge.speedLimit} mph, ${fmtInt(bridge.weightLimit)} t`) : '') +
+      row('Location', `${x}, ${y}`),
+  };
+}
+
 export function inspectTile(world: World, x: number, y: number): Inspection {
+  const tr = trackInspection(world, x, y);
+  if (tr) return tr;
   const occ = world.occupantAt(x, y);
   if (occupantKind(occ) === OCC_INDUSTRY) {
     const ind = world.industries[occupantIndex(occ)];

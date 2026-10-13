@@ -8,6 +8,9 @@ import buildingsJson from './buildings.json';
 import mapgenJson from './mapgen.json';
 import namesJson from './names.json';
 import timeJson from './time.json';
+import constructionJson from './construction.json';
+import stationsJson from './stations.json';
+import companyJson from './company.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -159,6 +162,60 @@ export const BUILDINGS: BuildingDef[] = buildingsJson.buildings as unknown as Bu
 export const MAPGEN: MapgenData = mapgenJson as unknown as MapgenData;
 export const NAMES: NamesData = namesJson as NamesData;
 export const TIME: TimeData = timeJson as TimeData;
+
+export interface BridgeDef {
+  id: string;
+  name: string;
+  perTile: number;
+  perLevel: number;
+  maxSpan: number;
+  speedLimit: number;
+  weightLimit: number;
+  era: [number, number];
+}
+
+export interface ConstructionData {
+  feetPerLevel: number;
+  feetPerTile: number;
+  track: {
+    single: number;
+    doubleExtra: number;
+    terrain: Record<TerrainName, number>;
+    clearForest: number;
+    perLevelClimb: number;
+    levelCrossing: number;
+    bulldozePerTile: number;
+    demolish: Record<string, number>;
+  };
+  planner: { gradeAvoidance: number; turnPenalty: number; reusePerTile: number; maxExpansions: number; heuristicWeight: number };
+  bridges: BridgeDef[];
+  tunnel: { perTile: number; maxLength: number; minCover: number; maxGradeLevelsPerTile: number };
+  undo: { maxActions: number; windowDays: number };
+}
+
+export interface StationLook {
+  w: number;
+  l: number;
+  h: number;
+  wall: string;
+  roof: string;
+  tower?: number;
+}
+
+export interface StationDef {
+  id: 'depot' | 'station' | 'terminal';
+  name: string;
+  length: number;
+  radius: number;
+  cost: number;
+  look: StationLook;
+}
+
+export const CONSTRUCTION: ConstructionData = constructionJson as unknown as ConstructionData;
+export const STATIONS: StationDef[] = stationsJson.stations as StationDef[];
+export const STATION_NAME_SUFFIXES: string[] = stationsJson.nameSuffixes;
+export const COMPANY = companyJson as { startingCash: number; names: string[] };
+export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const CARGO_BY_ID: ReadonlyMap<string, CargoDef> = new Map(CARGO.map((c) => [c.id, c]));
 export const INDUSTRY_BY_ID: ReadonlyMap<string, IndustryDef> = new Map(INDUSTRIES.map((d) => [d.id, d]));

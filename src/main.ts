@@ -22,6 +22,8 @@ async function boot(): Promise<void> {
   applyTheme();
   await loadPixelFont();
   const app = new App();
+  // Handy for debugging and automated browser checks.
+  (window as unknown as { ironBaron: App }).ironBaron = app;
   withLoading('Surveying the land…', () => {
     app.newGame(paramsFromUrl());
     app.start();

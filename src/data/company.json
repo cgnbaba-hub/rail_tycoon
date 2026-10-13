@@ -1,0 +1,5 @@
+{
+  "_doc": "Company defaults. Full finance (shares, bonds, personal stake) arrives in M5.",
+  "startingCash": 1000000,
+  "names": ["Great Western & Iron", "Northern Pacific Line", "Valley & Summit Rail", "Lakeshore Railway", "Coal Basin Rail Co.", "Prairie Central"]
+}

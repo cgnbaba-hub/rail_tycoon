@@ -1,6 +1,6 @@
 import { MAPGEN, TIME } from '../data';
 import { Camera, ZOOMS } from '../render/camera';
-import { Renderer } from '../render/renderer';
+import { Renderer, type Overlay } from '../render/renderer';
 import { Game } from '../sim/game';
 import { defaultMapParams } from '../sim/mapgen';
 import { seedFromString } from '../sim/rng';
@@ -11,22 +11,24 @@ import { icon } from './icons';
 import { inspectTile, type Inspection } from './inspector';
 import { Minimap } from './minimap';
 import { crispFontSize } from './theme';
+import { BulldozeTool, StationTool, TrackTool, fmtMoney, type Tool, type ToolHost } from './tools';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
 const PAN_SPEED = 520; // buffer px per second for keyboard panning
 
-interface ToolButton {
+interface RailButton {
   id: string;
   icon: string;
   tip: string;
   key: string;
   action: () => void;
-  toggled?: () => boolean;
+  pressed?: () => boolean;
+  disabled?: () => boolean;
 }
 
-export class App {
-  private game!: Game;
-  private camera!: Camera;
+export class App implements ToolHost {
+  game!: Game;
+  camera!: Camera;
   private readonly renderer: Renderer;
   private readonly minimap: Minimap;
   private readonly stepper = new FixedStepper();
@@ -36,19 +38,24 @@ export class App {
   private lastSpeed = 1;
   private hoverTile: [number, number] | null = null;
   private pinned: [number, number] | null = null;
-  private lastInspectKey = '';
+  private lastPanelKey = '';
+  private panelDirty = true;
   private lastDateText = '';
+  private lastCash = NaN;
   private keysDown = new Set<string>();
   private pixelScale = 3;
   private lastFrame = performance.now();
-  private toolButtons: ToolButton[] = [];
+  private railButtons: RailButton[] = [];
+  private tools: Record<string, Tool> = {};
+  private tool: Tool | null = null;
+  private minimapStamp = -1;
+  private inspectOverlay: Overlay = { highlights: [] };
 
   constructor() {
     this.canvas = $('#world') as HTMLCanvasElement;
     this.renderer = new Renderer(this.canvas);
     this.minimap = new Minimap($('#minimap') as HTMLCanvasElement, (x, y) => this.camera.centerOn(x, y));
     this.buildTopbar();
-    this.buildRail();
     this.bindCanvas();
     this.bindKeys();
     this.bindTooltips();
@@ -61,6 +68,8 @@ export class App {
   // -------------------------------------------------------------------------------------
 
   newGame(params: MapParams): void {
+    this.tool?.deactivate?.();
+    this.tool = null;
     this.game = new Game(params);
     const world = this.game.world;
     this.camera = new Camera(world.width, world.height);
@@ -68,17 +77,19 @@ export class App {
     if (biggest) this.camera.centerOn(biggest.x + 0.5, biggest.y + 0.5);
     this.renderer.setWorld(world);
     this.minimap.setWorld(world);
+    this.tools = { track: new TrackTool(this), station: new StationTool(this), bulldoze: new BulldozeTool(this) };
+    this.buildRail();
     this.pinned = null;
     this.hoverTile = null;
-    this.lastInspectKey = '';
     this.stepper.reset();
     this.setSpeed(1);
     $('#seed').textContent = `Seed ${params.seed}`;
+    $('#company').textContent = this.game.company.name;
     const url = new URL(window.location.href);
     url.searchParams.set('seed', String(params.seed));
     url.searchParams.set('size', String(params.size));
     window.history.replaceState(null, '', url);
-    this.renderInspector();
+    this.invalidatePanel();
   }
 
   start(): void {
@@ -109,8 +120,15 @@ export class App {
       this.camera.panByScreen(-px * step, -py * step);
     }
 
+    this.tool?.update?.();
+    this.renderer.overlay = this.tool ? this.tool.overlay() : this.inspectOverlay;
     const time = this.game.tick + this.stepper.alpha;
     this.renderer.render(this.camera, time);
+    if (this.renderer.changeCounter !== this.minimapStamp) {
+      this.minimapStamp = this.renderer.changeCounter;
+      this.minimap.refresh();
+      this.panelDirty = true;
+    }
     this.minimap.draw(this.camera);
     this.updateHud();
   }
@@ -126,6 +144,35 @@ export class App {
     this.canvas.style.width = `${(bw * this.pixelScale) / dpr}px`;
     this.canvas.style.height = `${(bh * this.pixelScale) / dpr}px`;
     document.documentElement.style.setProperty('--fs', `${crispFontSize(dpr, window.innerWidth < 760 ? 12 : 17)}px`);
+  }
+
+  // -------------------------------------------------------------------------------------
+  // ToolHost
+  // -------------------------------------------------------------------------------------
+
+  toast(message: string, kind: 'info' | 'error' | 'money' = 'info'): void {
+    const root = $('#toasts');
+    const el = h('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, esc(message));
+    root.appendChild(el);
+    while (root.children.length > 4) root.firstElementChild?.remove();
+    setTimeout(() => el.classList.add('out'), 3200);
+    setTimeout(() => el.remove(), 3700);
+  }
+
+  invalidatePanel(): void {
+    this.panelDirty = true;
+  }
+
+  setTool(id: string): void {
+    const next = id === 'inspect' ? null : this.tools[id] ?? null;
+    if (next === this.tool) return;
+    this.tool?.deactivate?.();
+    this.tool = next;
+    this.tool?.activate?.();
+    if (this.tool) this.pinned = null;
+    this.canvas.dataset.tool = this.tool?.id ?? 'inspect';
+    this.tool?.pointerMove?.(this.hoverTile);
+    this.invalidatePanel();
   }
 
   // -------------------------------------------------------------------------------------
@@ -156,11 +203,23 @@ export class App {
 
   private buildRail(): void {
     const rail = $('#rail');
-    this.toolButtons = [
-      { id: 'inspect', icon: 'inspect', tip: 'Inspect — click a tile to pin its details', key: 'I', action: () => {}, toggled: () => true },
+    rail.innerHTML = '';
+    this.railButtons = [
+      { id: 'inspect', icon: 'inspect', tip: 'Inspect — hover for details, click to pin', key: 'I', action: () => this.setTool('inspect'), pressed: () => this.tool === null },
+      { id: 'track', icon: 'track', tip: 'Lay track — drag to auto-route', key: 'T', action: () => this.setTool('track'), pressed: () => this.tool?.id === 'track' },
+      { id: 'station', icon: 'station', tip: 'Build station — shows catchment', key: 'B', action: () => this.setTool('station'), pressed: () => this.tool?.id === 'station' },
+      { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
+      {
+        id: 'undo',
+        icon: 'undo',
+        tip: 'Undo last construction (full refund)',
+        key: 'Ctrl+Z',
+        action: () => this.undo(),
+        disabled: () => !this.game.undoable,
+      },
       { id: 'sep1', icon: '', tip: '', key: '', action: () => {} },
-      { id: 'grid', icon: 'grid', tip: 'Toggle tile grid', key: 'G', action: () => this.toggleGrid(), toggled: () => this.renderer.showGrid },
-      { id: 'labels', icon: 'labels', tip: 'Toggle town labels', key: 'L', action: () => (this.renderer.showLabels = !this.renderer.showLabels), toggled: () => this.renderer.showLabels },
+      { id: 'grid', icon: 'grid', tip: 'Toggle tile grid', key: 'G', action: () => (this.renderer.showGrid = !this.renderer.showGrid), pressed: () => this.renderer.showGrid },
+      { id: 'labels', icon: 'labels', tip: 'Toggle labels', key: 'L', action: () => (this.renderer.showLabels = !this.renderer.showLabels), pressed: () => this.renderer.showLabels },
       { id: 'sep2', icon: '', tip: '', key: '', action: () => {} },
       { id: 'rotl', icon: 'rotl', tip: 'Rotate view left', key: 'Q', action: () => this.camera.rotate(-1) },
       { id: 'rotr', icon: 'rotr', tip: 'Rotate view right', key: 'E', action: () => this.camera.rotate(1) },
@@ -168,7 +227,7 @@ export class App {
       { id: 'zout', icon: 'zoomout', tip: 'Zoom out', key: '-', action: () => this.zoomBy(-1) },
       { id: 'center', icon: 'center', tip: 'Centre on pinned tile or largest town', key: 'C', action: () => this.centerOnFocus() },
     ];
-    for (const t of this.toolButtons) {
+    for (const t of this.railButtons) {
       if (t.id.startsWith('sep')) {
         rail.appendChild(h('div', { class: 'sep', role: 'separator' }));
         continue;
@@ -180,8 +239,13 @@ export class App {
     }
   }
 
-  private toggleGrid(): void {
-    this.renderer.showGrid = !this.renderer.showGrid;
+  private undo(): void {
+    const label = this.game.undoable?.label;
+    const r = this.game.undo();
+    if (r.ok) this.toast(`Undid ${label} (+${fmtMoney(-r.cost)})`, 'money');
+    else this.toast(r.error ?? 'Nothing to undo.', 'error');
+    this.tool?.pointerMove?.(this.hoverTile);
+    this.invalidatePanel();
   }
 
   private zoomBy(d: number): void {
@@ -211,15 +275,26 @@ export class App {
       $('#date').textContent = text;
       this.lastDateText = text;
     }
-    for (const t of this.toolButtons) {
-      if (!t.toggled) continue;
-      document.getElementById(`tool-${t.id}`)?.setAttribute('aria-pressed', String(t.toggled()));
+    const cash = Math.round(this.game.company.cash);
+    if (cash !== this.lastCash) {
+      const el = $('#cash');
+      el.textContent = fmtMoney(cash);
+      el.classList.toggle('neg', cash < 0);
+      this.lastCash = cash;
+      this.panelDirty = true;
+    }
+    for (const t of this.railButtons) {
+      const el = document.getElementById(`tool-${t.id}`) as HTMLButtonElement | null;
+      if (!el) continue;
+      if (t.pressed) el.setAttribute('aria-pressed', String(t.pressed()));
+      if (t.disabled) el.disabled = t.disabled();
     }
     const tile = this.pinned ?? this.hoverTile;
     const status = [
       `Zoom ${ZOOMS[this.camera.zoom].label}`,
       `View ${COMPASS[this.camera.rot]}`,
       tile ? `Tile ${tile[0]},${tile[1]}` : '',
+      this.tool ? this.tool.hint() : '',
       this.speed === 0 ? 'PAUSED' : '',
       this.renderer.pendingChunks ? 'drawing…' : '',
     ]
@@ -227,32 +302,44 @@ export class App {
       .join(' · ');
     const st = $('#status');
     if (st.textContent !== status) st.textContent = status;
-    this.renderInspector();
+    this.renderPanel();
   }
 
-  private renderInspector(): void {
+  private renderPanel(): void {
+    const el = $('#inspector');
+    if (this.tool) {
+      this.renderer.hover = null;
+      this.renderer.selection = null;
+      if (!this.panelDirty) return;
+      this.panelDirty = false;
+      this.lastPanelKey = '';
+      el.innerHTML = this.tool.panelHtml();
+      this.tool.bindPanel?.(el);
+      return;
+    }
     const tile = this.pinned ?? this.hoverTile;
     const world = this.game.world;
     let insp: Inspection | null = null;
     if (tile) insp = inspectTile(world, tile[0], tile[1]);
-    const key = tile ? `${tile[0]},${tile[1]},${this.pinned ? 1 : 0}` : 'none';
-    // Highlights.
     this.renderer.hover = insp && !this.pinned ? { rect: insp.rect, color: '#f2c84a' } : null;
     this.renderer.selection = insp && this.pinned ? { rect: insp.rect, color: '#f3f5fb' } : null;
-    if (key === this.lastInspectKey) return;
-    this.lastInspectKey = key;
-    const el = $('#inspector');
+    this.inspectOverlay = { highlights: insp?.extraHighlights ?? [] };
+    const key = tile ? `${tile[0]},${tile[1]},${this.pinned ? 1 : 0}` : 'none';
+    if (key === this.lastPanelKey && !this.panelDirty) return;
+    this.lastPanelKey = key;
+    this.panelDirty = false;
     if (!insp) {
       el.innerHTML = `
         <div class="card-title"><span class="grow">Welcome, Chairman</span></div>
-        <p class="hint" style="margin-top:0">Survey the land before laying your first rails.
-        Hover to inspect, click to pin. Right-drag or WASD to pan, wheel to zoom, Q/E to rotate.</p>
+        <p class="hint" style="margin-top:0">You run <b>${esc(this.game.company.name)}</b>. Connect towns and industries:
+        pick <kbd>T</kbd> and drag to lay track, <kbd>B</kbd> to place stations. Right-drag or WASD pans, wheel zooms, Q/E rotates.</p>
         <div class="kv"><span>Towns</span><b>${world.cities.length}</b></div>
         <div class="kv"><span>Industries</span><b>${world.industries.length}</b></div>
+        <div class="kv"><span>Stations</span><b>${world.liveStations().length}</b></div>
         <div class="kv"><span>Map</span><b>${world.width}×${world.height}</b></div>`;
       return;
     }
-    const tag = insp.kind === 'city' ? 'Town' : insp.kind === 'industry' ? 'Industry' : 'Land';
+    const tag = insp.kind === 'city' ? 'Town' : insp.kind === 'industry' ? 'Industry' : insp.kind === 'station' ? 'Station' : insp.kind === 'track' ? 'Track' : 'Land';
     el.innerHTML = `
       <div class="card-title">
         <span class="tag">${tag}</span><span class="grow" title="${esc(insp.title)}">${esc(insp.title)}</span>
@@ -273,46 +360,73 @@ export class App {
 
   private bindCanvas(): void {
     const c = this.canvas;
-    let drag: { id: number; x: number; y: number; moved: number; button: number } | null = null;
+    type Drag = { id: number; x: number; y: number; moved: number; button: number; toolOwned: boolean };
+    let drag: Drag | null = null;
     c.addEventListener('contextmenu', (e) => e.preventDefault());
     c.addEventListener('pointerdown', (e) => {
       if (!this.game) return;
       c.setPointerCapture(e.pointerId);
       const [x, y] = this.toBuffer(e);
-      drag = { id: e.pointerId, x, y, moved: 0, button: e.button };
+      const tile = this.renderer.pick(this.camera, x, y);
+      let toolOwned = false;
+      if (this.tool?.pointerDown) toolOwned = this.tool.pointerDown(tile, e.button) && (e.button === 0 || e.button === 2);
+      if (toolOwned && e.button === 2) {
+        // Right-click consumed as "cancel" by the tool.
+        drag = null;
+        return;
+      }
+      drag = { id: e.pointerId, x, y, moved: 0, button: e.button, toolOwned: toolOwned && e.button === 0 && !this.tool?.leftDragPans };
     });
     c.addEventListener('pointermove', (e) => {
       if (!this.game) return;
       const [x, y] = this.toBuffer(e);
+      const tile = this.renderer.pick(this.camera, x, y);
       if (drag && drag.id === e.pointerId) {
         const dx = x - drag.x;
         const dy = y - drag.y;
         drag.moved += Math.abs(dx) + Math.abs(dy);
-        // Any button pans once the pointer really moves (left-drag too, for trackpads).
+        drag.x = x;
+        drag.y = y;
+        if (drag.toolOwned) {
+          this.hoverTile = tile;
+          this.tool?.pointerMove?.(tile);
+          return;
+        }
         if (drag.moved > 3) {
           c.classList.add('panning');
           this.camera.panByScreen(dx, dy);
         }
-        drag.x = x;
-        drag.y = y;
         return;
       }
-      this.hoverTile = this.renderer.pick(this.camera, x, y);
+      if (tile?.[0] !== this.hoverTile?.[0] || tile?.[1] !== this.hoverTile?.[1]) {
+        this.hoverTile = tile;
+        this.tool?.pointerMove?.(tile);
+      }
     });
     const end = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return;
-      const wasClick = drag.moved <= 3 && drag.button === 0;
+      const d = drag;
       drag = null;
       c.classList.remove('panning');
-      if (wasClick) {
-        const [x, y] = this.toBuffer(e);
-        this.pinned = this.renderer.pick(this.camera, x, y);
+      const [x, y] = this.toBuffer(e);
+      const tile = this.renderer.pick(this.camera, x, y);
+      if (d.toolOwned) {
+        this.tool?.pointerUp?.(tile);
+        return;
       }
+      const wasClick = d.moved <= 3 && d.button === 0;
+      if (!wasClick) return;
+      if (this.tool) this.tool.pointerUp?.(tile);
+      else this.pinned = tile;
+      this.invalidatePanel();
     };
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     c.addEventListener('pointerleave', () => {
-      if (!drag) this.hoverTile = null;
+      if (!drag) {
+        this.hoverTile = null;
+        this.tool?.pointerMove?.(null);
+      }
     });
     let wheelAcc = 0;
     c.addEventListener(
@@ -339,10 +453,20 @@ export class App {
         if (e.key === 'Escape') this.closeModal();
         return;
       }
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === 'z') {
+        this.undo();
+        e.preventDefault();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'w', 'a', 's', 'd'].includes(k)) {
         this.keysDown.add(k);
+        e.preventDefault();
+        return;
+      }
+      if (this.tool?.key?.(k)) {
+        this.invalidatePanel();
         e.preventDefault();
         return;
       }
@@ -356,6 +480,18 @@ export class App {
         case '3':
         case '4':
           this.setSpeed(Number(k));
+          break;
+        case 'i':
+          this.setTool('inspect');
+          break;
+        case 't':
+          this.setTool('track');
+          break;
+        case 'b':
+          this.setTool('station');
+          break;
+        case 'x':
+          this.setTool('bulldoze');
           break;
         case 'q':
           this.camera.rotate(-1);
@@ -372,7 +508,7 @@ export class App {
           this.zoomBy(-1);
           break;
         case 'g':
-          this.toggleGrid();
+          this.renderer.showGrid = !this.renderer.showGrid;
           break;
         case 'l':
           this.renderer.showLabels = !this.renderer.showLabels;
@@ -388,7 +524,8 @@ export class App {
           this.openHelp();
           break;
         case 'escape':
-          this.pinned = null;
+          if (this.tool) this.setTool('inspect');
+          else this.pinned = null;
           break;
         default:
           return;
@@ -490,15 +627,20 @@ export class App {
 
   openHelp(): void {
     const keys: Array<[string, string]> = [
-      ['Right/middle drag', 'Pan the map (left-drag works too)'],
+      ['T', 'Lay track: drag from A to B, auto-routed'],
+      ['V', 'Toggle single/double track (track tool)'],
+      ['B', 'Build station (B again cycles size, R rotates)'],
+      ['X', 'Bulldoze track / stations'],
+      ['Ctrl+Z', 'Undo construction (full refund, within 7 days)'],
+      ['I / Esc', 'Back to Inspect · Esc cancels a drag'],
+      ['Right/middle drag', 'Pan the map'],
       ['W A S D / arrows', 'Pan'],
       ['Mouse wheel  + / -', 'Zoom'],
       ['Q / E', 'Rotate view 90°'],
-      ['Click', 'Pin tile details  (Esc to unpin)'],
-      ['Space / P', 'Pause / resume'],
+      ['Click (Inspect)', 'Pin tile details'],
+      ['Space / P', 'Pause / resume (building works while paused)'],
       ['1 2 3 4', 'Speed 1× 2× 4× 8×'],
-      ['G', 'Tile grid'],
-      ['L', 'Town labels'],
+      ['G / L', 'Tile grid / labels'],
       ['C', 'Centre on pinned tile / largest town'],
       ['N', 'New map'],
       ['H / ?', 'This help'],
@@ -506,7 +648,7 @@ export class App {
     const m = this.openModal(`
       <h2>Iron Baron — controls</h2>
       <div class="keys">${keys.map(([k, v]) => `<kbd>${esc(k)}</kbd><span>${esc(v)}</span>`).join('')}</div>
-      <p class="hint">Milestone 1: explore the generated world. Track, stations and trains arrive in the next milestones.</p>
+      <p class="hint">Grades matter: the route preview colours each stretch by steepness and draws its elevation profile. Trains arrive in the next milestone.</p>
       <div class="actions"><button class="btn primary" id="help-ok">Got it</button></div>`);
     const ok = m.querySelector('#help-ok') as HTMLElement;
     ok.addEventListener('click', () => this.closeModal());

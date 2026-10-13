@@ -1,6 +1,7 @@
 import type { Camera } from '../render/camera';
 import { rotatedSize, toView } from '../render/iso';
 import { PALETTE, PALETTE_RGB, PAL, LIGHTER, DARKER } from '../render/palette';
+import { NODE_TUNNEL } from '../sim/track';
 import { F, OCC_BUILDING, OCC_INDUSTRY, T, occupantKind, type World } from '../sim/world';
 
 type Affine = [number, number, number, number, number, number];
@@ -51,6 +52,13 @@ export class Minimap {
 
   setWorld(world: World): void {
     this.world = world;
+    this.refresh();
+  }
+
+  /** Re-render the terrain image (call after construction). */
+  refresh(): void {
+    const world = this.world;
+    if (!world) return;
     const W = world.width;
     const H = world.height;
     const img = document.createElement('canvas');
@@ -73,6 +81,8 @@ export class Minimap {
         const occ = world.occupant[i];
         if (occupantKind(occ) === OCC_BUILDING) c = PAL.brick;
         if (occupantKind(occ) === OCC_INDUSTRY) c = PAL.gold;
+        const node = world.track.getIdx(i);
+        if (node && node.kind !== NODE_TUNNEL) c = node.station >= 0 ? PAL.snow : PAL.ink;
         const [r, g, b] = PALETTE_RGB[c];
         data.data[i * 4] = r;
         data.data[i * 4 + 1] = g;

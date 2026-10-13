@@ -44,3 +44,28 @@ Decisions made without asking (per the working rules). Revisit any of them on re
 - Left-drag also pans in the Inspect tool (trackpads); in later build tools left-drag will be
   reserved for construction and pan stays on right/middle drag.
 - The overview map is an isometric diamond that rotates with the main view.
+
+## Track & stations (M2)
+- **Track graph on tile centres** with 8-direction connections (RT-style). Trains may turn at
+  most 45° per tile; the planner and the junction rules enforce it. Two diagonals may not
+  cross inside a 2×2 block; orthogonal crossings (diamonds) are allowed.
+- **Heights:** ground track follows the terrain (node height = surface at the tile centre).
+  Bridges and tunnels are straight spans whose interior nodes interpolate between the two
+  ground ends; tunnels leave the terrain untouched. No terraforming.
+- **Scale:** 1 tile = 1,320 ft (¼ mile), 1 height level = 60 ft ⇒ one level per tile is a 4.5 %
+  grade. Real main lines rarely exceed 2 %, so anything over 3.5 % is flagged "steep".
+- **Auto-routing** (A* over tile+heading) minimises *money + planning penalties* (grade² and
+  turns). Penalties are not charged, they only make routes look like railways. The search is
+  resumable so long previews are spread across frames and never stall the UI.
+- Dragging onto a tile that can't take track (industry, water) snaps the end to its nearest
+  buildable neighbour.
+- **Stations** sit on straight track (E–W or N–S), 1/2/3 tiles long, and may demolish town
+  buildings (priced in). Catchment = footprint grown by the radius (square). A town counts as
+  covered in proportion to its buildings inside the catchment.
+- **Bulldozing** a station removes the station but keeps its track; bulldozing a bridge or
+  tunnel tile removes the whole span.
+- **Undo rule:** the last 30 construction actions can be undone with a full refund as long as
+  fewer than 7 in-game days have passed since each. Building while paused can therefore always
+  be undone. (When trains exist, undo will also be blocked for track a train is standing on.)
+- Company finances are minimal until M5: one cash balance ($1,000,000 to start) and a
+  per-year construction ledger.

@@ -103,3 +103,40 @@ describe('chunk renderer', () => {
     }
   });
 });
+
+describe('chunk renderer with railways', () => {
+  it('draws track, bridges, tunnels and stations in every rotation and zoom', async () => {
+    const { flatWorld, addRiver, addHill } = await import('./helpers');
+    const { Game } = await import('../src/sim/game');
+    const { defaultTrackOptions } = await import('../src/sim/construction');
+    const { CONSTRUCTION } = await import('../src/data');
+    const w = flatWorld(40);
+    addRiver(w, 8);
+    addHill(w, 26, 20, 7);
+    const g = new Game({ ...defaultMapParams(1), size: 40 }, w);
+    g.company.cash = 1e9;
+    const saved = CONSTRUCTION.tunnel.perTile;
+    CONSTRUCTION.tunnel.perTile = 1000;
+    try {
+      expect(g.buildTrack(w.tileIndex(2, 20), w.tileIndex(38, 20), { ...defaultTrackOptions(1850), double: true }).ok).toBe(true);
+    } finally {
+      CONSTRUCTION.tunnel.perTile = saved;
+    }
+    expect(g.buildStation(4, 10, 'terminal', 'x').ok).toBe(true);
+    const data = new WorldRenderData(w);
+    const rail = PALETTE_U32[PALETTE_NAMES.indexOf('fog')];
+    for (const rot of [0, 1, 2, 3] as Rot[]) {
+      for (const tw of [8, 16, 32]) {
+        let rails = 0;
+        const [RW, RH] = rotatedSize(rot, 40, 40);
+        for (let cy = 0; cy < Math.ceil(RH / CHUNK); cy++) {
+          for (let cx = 0; cx < Math.ceil(RW / CHUNK); cx++) {
+            const { buf } = renderChunk(data, rot, tw, cx, cy);
+            for (const v of buf.data) if (v === rail) rails++;
+          }
+        }
+        if (tw >= 16) expect(rails).toBeGreaterThan(50);
+      }
+    }
+  });
+});

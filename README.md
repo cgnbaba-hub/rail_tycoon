@@ -3,8 +3,9 @@
 An 8-bit, browser-based railroad business simulation — an homage to the late-90s railroad
 tycoon games, with original pixel art, an original pixel font and a modern, friction-free UI.
 
-> Status: **Milestone 1 (engine & map)** — explore procedurally generated worlds. Track,
-> stations, trains, economy and the stock market follow in later milestones (see `PLAN.md`).
+> Status: **Milestone 2 (track & stations)** — survey a procedurally generated world, lay
+> auto-routed track with bridges and tunnels, and place stations with live catchment
+> previews. Trains, economy and the stock market follow in later milestones (see `PLAN.md`).
 
 ## Running
 
@@ -28,6 +29,12 @@ npx vite-node scripts/mapstats.ts -- <seed> <size>
 
 | Input | Action |
 |---|---|
+| `T` | Lay track — drag from A to B; the route is planned automatically (cost, grades and elevation profile shown live) |
+| `V` | Single / double track (track tool) |
+| `B` | Build station — hover shows the catchment and what it covers; `B` again cycles depot/station/terminal, `R` rotates |
+| `X` | Bulldoze track, bridges/tunnels (whole span) or stations |
+| `Ctrl+Z` | Undo the last construction (full refund within 7 in-game days) |
+| `I` / `Esc` | Back to Inspect (`Esc` also cancels a drag; right-click cancels too) |
 | Right / middle drag (or left drag) | Pan |
 | W A S D / arrow keys | Pan |
 | Mouse wheel, `+` / `-` | Zoom (¼×, ½×, 1×, 2×) |
@@ -43,11 +50,14 @@ npx vite-node scripts/mapstats.ts -- <seed> <size>
 
 The overview map in the lower right is clickable/draggable.
 
-## How to play (M1)
+## How to play (M2)
 
-Start a new map, explore it and scout good routes: big towns, coal next to iron near a steel
-mill, grain and cattle near a food plant. Every industry shows what it produces and what it
-needs. Building and running a railroad arrives with M2/M3.
+You chair a new railroad with $1,000,000. Scout the map (hover anything for details), then
+place stations where their catchment covers big towns or chains of industries (coal + iron
+near a steel mill, grain + cattle near a food plant) and connect them with track. Watch the
+grade profile: steep lines are cheap to build but will slow heavy trains once they run (M3).
+Pause any time — building works while paused, and anything you build can be undone for a
+full refund for a week of game time.
 
 ## Project layout
 

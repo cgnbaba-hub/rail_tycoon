@@ -54,7 +54,39 @@ spot is valid when the footprint is buildable, on allowed terrain, within the he
 type, and (processors) lies `nearCity[0..1]` tiles beyond a town's built-up radius (resource
 sites stay ≥ 3 tiles outside towns).
 
+## Construction (`construction.json`, `stations.json`, `company.json`)
+
+Scale: `feetPerTile = 1320`, `feetPerLevel = 60` →
+`grade % = Δlevels · 60 / (tiles · 1320) · 100` (one level per tile ≈ 4.5 %).
+
+**Track step** from tile A to neighbour B (length `L` = 1 or √2):
+`cost = single · L · max(terrain[A], terrain[B]) + perLevelClimb · |zB − zA| (+ doubleExtra · L if double)`
+plus, once per newly occupied tile: `clearForest` (forest or lone tree), `levelCrossing`
+(town street), `demolish[building type]`. Terrain factors: grass 1.0, sand 1.15, forest 1.3,
+rough 1.7, snow 2.1. Reusing existing track is free (upgrading to double costs `doubleExtra · L`).
+
+**Bridges** (straight span of k interior tiles): `perTile · (k + 1) · L + perLevel · Σ deck height above ground`.
+Wooden trestle (k ≤ 3, 35 mph, 400 t), stone arch (k ≤ 5, 80 mph, 3,000 t), steel truss
+(k ≤ 10, from 1870, 120 mph, 9,000 t). "Auto" picks the cheapest type that spans the gap.
+Deck clearance ≥ 0.5 level over dry ground; deck slope ≤ 1 level per tile.
+
+**Tunnels**: `perTile · (k + 1) · L`, 2 ≤ k ≤ `maxLength` (8), every interior tile's centre must
+be ≥ `minCover` (0.75 level) above the tunnel line, grade ≤ `maxGradeLevelsPerTile` (0.5).
+
+**Planner** (A*, not charged): step penalty `gradeAvoidance · grade%² · L + turnPenalty` (per 45°
+turn); reused track costs `reusePerTile · L`; heuristic = octile distance · single ·
+`heuristicWeight` (1.1, slightly greedy for speed). Search stops after `maxExpansions`.
+
+**Stations**: depot $25k (1 tile, radius 2), station $60k (2 tiles, radius 3), terminal $120k
+(3 tiles, radius 4), plus track and demolition for new tiles. Covered town population =
+`population · buildings inside / live buildings`.
+
+**Bulldozing**: `bulldozePerTile` ($500) per removed track tile (station tiles count too).
+**Undo**: full refund; `undo.maxActions` = 30, `undo.windowDays` = 7.
+
+**Company**: `startingCash` $1,000,000 (until shares/bonds arrive in M5).
+
 ## Rendering constants (code, visual only)
 - Light direction (view space) `(-0.6, 0.25, 0.76)`, height-to-tile ratio `Z_UNIT = 0.9`,
   `SHADE_GAIN = 2.2`: `t = 1 + (n·L − L_z) · gain` picks a position on a 3-colour ramp.
-- Display elevation: 1 height level = 80 ft.
+- Display elevation: 1 height level = 60 ft (`feetPerLevel`).
