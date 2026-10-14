@@ -37,6 +37,8 @@ npx vite-node scripts/stress.ts                              # 120 trains, signa
 | `B` | Build station — hover shows the catchment and what it covers; `B` again cycles depot/station/terminal, `R` rotates |
 | `X` | Bulldoze track, bridges/tunnels (whole span) or stations |
 | `F` | Trains: sortable fleet list, buy a new train (engine, route, cars, live profit estimate) |
+| `M` | Finance: books, bonds, stock chart & share actions, your portfolio |
+| Click a top-bar chip | Economy report · stock window · your portfolio |
 | Click a train | Select it: status, cargo, route, profit; edit, follow, duplicate, upgrade engine, sell |
 | `Ctrl+Z` | Undo the last construction (full refund within 7 in-game days) |
 | `I` / `Esc` | Back to Inspect (`Esc` also cancels a drag; right-click cancels too) |
@@ -57,7 +59,7 @@ The overview map in the lower right is clickable/draggable.
 
 ## How to play
 
-You chair a new railroad with $1,000,000.
+You chair a new railroad founded with $1,000,000 from its share issue; you hold 20 % of the shares.
 
 1. **Scout** — hover towns and industries; stations show what they would supply and demand.
 2. **Build stations** (`B`) whose catchment covers big towns or industry chains
@@ -77,6 +79,14 @@ carry their passengers and bring the goods they demand; growing towns demand mor
 panels sell improvements (hotel, post office, water tower, maintenance shop, …); the train
 dialog offers a caboose and dining car as extras. In the Expert economy you can buy
 industries from their info panel.
+
+**Money.** The company and you are separate: the company has cash, bonds and shares
+(`M` opens the finance window — books, bonds, stock chart, your portfolio). You own 20 % of
+it at the start and earn a salary plus dividends. Profits, book value, dividends and the
+economy's mood drive the share price; the stock window explains every move. Bonds are
+cheaper with a good credit rating; running out of cash forces expensive emergency bonds.
+You can buy more shares (on margin), sell, or sell short — watch the margin gauge. Your
+personal net worth is in the top bar.
 
 Single track carries one train per block between stations; double track lets trains pass
 anywhere. Steep grades slow heavy trains to a crawl. Pause any time — building works while

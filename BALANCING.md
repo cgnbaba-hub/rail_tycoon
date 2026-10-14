@@ -201,3 +201,34 @@ dining car: passengers × 1.15 (cars that carry nothing).
 - Light direction (view space) `(-0.6, 0.25, 0.76)`, height-to-tile ratio `Z_UNIT = 0.9`,
   `SHADE_GAIN = 2.2`: `t = 1 + (n·L − L_z) · gain` picks a position on a 3-colour ramp.
 - Display elevation: 1 height level = 60 ft (`feetPerLevel`).
+
+## Finance (`finance.json`, M5)
+
+**Founding:** 100,000 shares × $10 = $1,000,000 company cash; chairman 20,000 shares
+(cost $200,000 of a $300,000 fortune). Salary $24,000/yr.
+
+**Fair value (whole company)** = `(book + P/E · profit⁺ + 0.5 · P/E · profit⁻ + 4 · dividends/yr) × mood`
+- book = book value (balance sheet); profit = smoothed annualised net profit:
+  `trend += 0.15 · (monthNet · 12 − trend)` each month.
+- P/E by economic state: Boom 11, Prosperity 9.5, Normal 8, Recession 6.5, Panic 5.
+- mood = `1 + (confidence − 55) · 0.0067` (confidence 15 → 0.73, 88 → 1.22).
+- Daily: `price += (fair/share − price) · 0.05 + price · N(0, 0.012)`; floor $0.25.
+- Trades move the price by `0.6 × shares / shares outstanding` (half that is the average
+  execution price). Commission 0.5 % on personal trades.
+
+**Bonds:** $100,000 blocks, 20-year term, rate fixed at issue = base + spread.
+Base: Boom 6 %, Prosperity 5 %, Normal 4.5 %, Recession 4 %, Panic 7 %.
+Rating by debt/assets: AAA ≤ 10 %, AA ≤ 20 %, A ≤ 30 %, BBB ≤ 40 %, BB ≤ 50 %, B ≤ 60 %,
+CCC ≤ 75 %, else D; spreads 0 / 0.5 / 1 / 1.5 / 2.5 / 4 / 6 / 9 %. Interest cover
+`(profit + interest) / interest` below 4 / 2 / 1 costs 1 / 2 / 3 notches. Emergency bonds
++2 %.
+
+**Dividends:** annual $/share in $0.10 steps, paid in Jan/Apr/Jul/Oct.
+**Shares:** issue 10 % blocks at −5 % (max every 6 months); buyback 10 % at +3 %; 2:1 split
+from $60.
+**Margin:** initial 50 %, maintenance 30 %, loan rate = base + 2 %.
+**Depreciation:** infrastructure 2 %/yr (monthly).
+
+Reference (`npx vite-node scripts/finance.ts -- 42`): two trains between two cities,
+$100k bond, $0.50 dividend: share price $10 → ≈ $19 after the first year, ≈ −20 % in the
+following recession; the chairman's net worth $300k → ≈ $500k.

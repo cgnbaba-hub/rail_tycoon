@@ -12,6 +12,7 @@ import { inspectTile, type Inspection } from './inspector';
 import { Minimap } from './minimap';
 import { crispFontSize } from './theme';
 import { BulldozeTool, StationTool, TrackTool, fmtMoney, type Tool, type ToolHost } from './tools';
+import { openFinance, openYearEnd, personalChipHtml, stockChipHtml, yearEndEnabled } from './finance';
 import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvementsHtml, industryEconomyHtml, openEconomy, stationDemandHtml, townGrowthHtml } from './economy';
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
@@ -63,6 +64,7 @@ export class App implements ToolHost, TrainUiHost {
   private pendingBreakdowns: string[] = [];
   private breakdownTimer: number | null = null;
   private econDirty = true;
+  private lastStockKey = '';
 
   constructor() {
     this.canvas = $('#world') as HTMLCanvasElement;
@@ -253,6 +255,22 @@ export class App implements ToolHost, TrainUiHost {
         }
         break;
       }
+      case 'finance':
+        this.toast(e.text, e.tone < 0 ? 'error' : 'info');
+        this.showNews(e.text, e.tone);
+        break;
+      case 'marginCall': {
+        const n = e.call.sold.reduce((a, s) => a + s.shares, 0);
+        this.toast(`Margin call! Your broker closed ${n.toLocaleString('en-US')} shares to cover your loan.`, 'error');
+        break;
+      }
+      case 'yearEnd':
+        if (yearEndEnabled()) {
+          const resume = this.speed;
+          this.setSpeed(0);
+          openYearEnd(this, e.report, () => this.setSpeed(resume || this.lastSpeed));
+        }
+        break;
       case 'noroute': {
         const t = g.trains.byId(e.train);
         this.toast(`${t?.name ?? 'A train'} has no route to its next stop.`, 'error');
@@ -295,6 +313,8 @@ export class App implements ToolHost, TrainUiHost {
       speed.appendChild(b);
     });
     $('#econ').addEventListener('click', () => openEconomy(this));
+    $('#stock').addEventListener('click', () => openFinance(this, 'stock'));
+    $('#personal').addEventListener('click', () => openFinance(this, 'portfolio'));
     $('#btn-new').innerHTML = `${icon('newmap')}<span>New map</span>`;
     $('#btn-new').addEventListener('click', () => this.openNewGameDialog());
     $('#btn-help').innerHTML = icon('help');
@@ -311,6 +331,7 @@ export class App implements ToolHost, TrainUiHost {
       { id: 'station', icon: 'station', tip: 'Build station — shows catchment', key: 'B', action: () => this.setTool('station'), pressed: () => this.tool?.id === 'station' },
       { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
       { id: 'trains', icon: 'train', tip: 'Trains — fleet list and new trains', key: 'F', action: () => openFleet(this) },
+      { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => openFinance(this) },
       {
         id: 'undo',
         icon: 'undo',
@@ -384,6 +405,12 @@ export class App implements ToolHost, TrainUiHost {
       el.classList.toggle('neg', cash < 0);
       this.lastCash = cash;
       this.panelDirty = true;
+    }
+    const stockKey = `${this.game.company.stock.price.toFixed(2)}|${Math.round(this.game.netWorth())}`;
+    if (stockKey !== this.lastStockKey) {
+      this.lastStockKey = stockKey;
+      $('#stock').innerHTML = stockChipHtml(this.game);
+      $('#personal').innerHTML = personalChipHtml(this.game);
     }
     if (this.econDirty) {
       this.econDirty = false;
@@ -695,6 +722,9 @@ export class App implements ToolHost, TrainUiHost {
         case 'c':
           this.centerOnFocus();
           break;
+        case 'm':
+          openFinance(this);
+          break;
         case 'n':
           this.openNewGameDialog();
           break;
@@ -815,6 +845,7 @@ export class App implements ToolHost, TrainUiHost {
       ['B', 'Build station (B again cycles size, R rotates)'],
       ['X', 'Bulldoze track / stations'],
       ['F', 'Trains: fleet list, buy & edit trains'],
+      ['M', 'Finance: books, bonds, stock, your portfolio'],
       ['Click a train', 'Select it (panel shows cargo, route, profit)'],
       ['Ctrl+Z', 'Undo construction (full refund, within 7 days)'],
       ['I / Esc', 'Back to Inspect · Esc cancels a drag'],

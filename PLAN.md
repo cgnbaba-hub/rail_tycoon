@@ -39,7 +39,7 @@ tests/      Vitest specs for sim + pure render math
 | M2 | Track & stations ✅ | Track tool with A* auto-pathing, slope % + cost preview, single/double track, bridges (3 types), tunnels, bulldoze, undo stack. Stations (3 sizes) with catchment overlay + highlighted industries. Company cash. |
 | M3 | Trains & cargo ✅ | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling / passing sidings on the track graph, load/unload, revenue formula (+ revenue estimate & payback in the track preview), fuel/maintenance, track maintenance, breakdowns, bridge speed/weight limits. |
 | M4 | Economy ✅ | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
-| M5 | Finance | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
+| M5 | Finance ✅ | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
 | M7 | Improved UI | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
 | M8 | Content & polish | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
@@ -109,3 +109,14 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] Caboose and dining car bonuses
 - [x] UI: economy chip + news ticker + economic report, station demand gauges with history and recovery time, improvements panel, industry business panel (buy/sell in Expert), town growth panel, last-delivery revenue breakdown in the train panel
 - [x] Tests: saturation & recovery, steady state, cycle determinism / warnings / leading indicator, models, price bounds, ownership, town growth (served vs. unserved), building placement, class-up, undo keeps growth, improvements, consist bonuses
+
+## M5 detailed checklist
+
+- [x] Founding share issue (100,000 shares at $10) with the chairman's 20 % stake bought from a personal fortune
+- [x] Books: income statement (revenue, operating costs, depreciation, interest, write-offs, net profit), investment & financing flows, balance sheet (cash, rolling stock, infrastructure, industries, bonds, book value), yearly history
+- [x] Bonds with fixed rates from the economy's base rate plus a credit-rating spread; rating from leverage and interest cover; early repayment, maturity, forced emergency bonds when cash runs out
+- [x] Dividends (quarterly, skipped when unaffordable), share issues (dilution, price dip, 6-month gap), buybacks, 2-for-1 splits
+- [x] Stock price model: fair value from book value, smoothed profit × P/E by economic state and dividends, scaled by market mood (business confidence — the market leads the economy); daily mean reversion with noise; trade impact; volume; notes explaining moves
+- [x] Chairman's personal account: salary, dividends, buy/sell, margin buying, short selling, margin calls with liquidation price, margin-loan interest; net worth history
+- [x] UI: top-bar share price and net-worth chips, finance window (Books, Bonds, Stock chart with volume + ownership pie + "why the price is where it is", Portfolio with margin gauge), confirmations for risky actions, year-end report (pauses the game, can be turned off)
+- [x] Tests: founding, valuation reactions (profit, book, dividends, losses, economy, confidence), convergence & impact, determinism, issue/buyback/split, dividends incl. skipped ones, credit rating, bond interest & rising rates, emergency bonds, book-value identity, bulldoze write-off & undo, depreciation & year-end report, margin limits, margin call at the liquidation price, short selling

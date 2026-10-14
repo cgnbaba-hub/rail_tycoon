@@ -14,6 +14,7 @@ import companyJson from './company.json';
 import enginesJson from './engines.json';
 import carsJson from './cars.json';
 import economyJson from './economy.json';
+import financeJson from './finance.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -353,7 +354,55 @@ export interface StationDef {
 export const CONSTRUCTION: ConstructionData = constructionJson as unknown as ConstructionData;
 export const STATIONS: StationDef[] = stationsJson.stations as StationDef[];
 export const STATION_NAME_SUFFIXES: string[] = stationsJson.nameSuffixes;
-export const COMPANY = companyJson as { startingCash: number; names: string[] };
+export const COMPANY = companyJson as { names: string[] };
+
+export interface RatingDef {
+  id: string;
+  maxLeverage: number;
+  spread: number;
+}
+
+export interface FinanceData {
+  shares: {
+    initial: number;
+    ipoPrice: number;
+    chairmanFraction: number;
+    chairmanFortune: number;
+    blockFraction: number;
+    issueDiscount: number;
+    buybackPremium: number;
+    minMonthsBetweenIssues: number;
+    splitMinPrice: number;
+    impact: number;
+    roundLot: number;
+  };
+  stock: {
+    bookWeight: number;
+    peByState: Record<string, number>;
+    lossWeight: number;
+    dividendMultiple: number;
+    moodPerConfidence: number;
+    reversion: number;
+    volatility: number;
+    profitSmoothing: number;
+    minPrice: number;
+    dailyHistory: number;
+    weeklyHistory: number;
+  };
+  bonds: {
+    block: number;
+    termYears: number;
+    baseRate: Record<string, number>;
+    ratings: RatingDef[];
+    coverageNotches: Array<[number, number]>;
+    emergencyPenalty: number;
+  };
+  dividends: { months: number[]; step: number };
+  accounting: { infrastructureDepreciation: number; chairmanSalaryPerYear: number };
+  margin: { initial: number; maintenance: number; interestSpread: number; commission: number };
+}
+
+export const FINANCE: FinanceData = financeJson as unknown as FinanceData;
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];
@@ -389,4 +438,10 @@ export function validateData(): void {
   }
   for (const imp of IMPROVEMENTS) if (imp.requires && !IMPROVEMENT_BY_ID.has(imp.requires)) throw new Error(`Improvement ${imp.id} requires unknown ${imp.requires}`);
   if (TIME.monthDays.length !== 12 || TIME.monthNames.length !== 12) throw new Error('time.json needs 12 months');
+  for (const st of states) {
+    if (!(st in FINANCE.stock.peByState)) throw new Error(`finance.json: no P/E for economic state ${st}`);
+    if (!(st in FINANCE.bonds.baseRate)) throw new Error(`finance.json: no base rate for economic state ${st}`);
+  }
+  const lev = FINANCE.bonds.ratings.map((r) => r.maxLeverage);
+  if (lev.some((v, i) => i > 0 && v <= lev[i - 1])) throw new Error('finance.json: rating leverage limits must increase');
 }

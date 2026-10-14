@@ -1,5 +1,24 @@
-import { CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, IMPROVEMENT_BY_ID, TIME, type EconomicModel } from '../data';
-import { Company, type ExpenseCategory } from './company';
+import { CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type EconomicModel } from '../data';
+import { Chairman, PLAYER, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
+import { Company, type ExpenseCategory, type YearRecord } from './company';
+import {
+  balanceSheet,
+  baseRate,
+  bondRate,
+  buybackShares,
+  closeMonth,
+  creditRating,
+  fairValue,
+  issueShares,
+  payDividend,
+  splitStock,
+  stockDaily,
+  type BalanceSheet,
+  type CreditRating,
+  type FairValue,
+  type MarketContext,
+  type ShareAction,
+} from './finance';
 import {
   Transaction,
   applyBulldoze,
@@ -44,7 +63,19 @@ export type GameEvent =
   | { type: 'news'; headline: Headline }
   | { type: 'growth'; reports: GrowthReport[] }
   | { type: 'industryIncome'; amount: number }
+  | { type: 'finance'; company: number; text: string; tone: number }
+  | { type: 'marginCall'; call: MarginCall }
+  | { type: 'yearEnd'; report: YearEndReport }
   | TrainEvent;
+
+export interface YearEndReport {
+  year: number;
+  company: YearRecord;
+  previous?: YearRecord;
+  priceStart: number;
+  worthStart: number;
+  worthEnd: number;
+}
 
 export interface UndoEntry {
   label: string;
@@ -52,6 +83,8 @@ export interface UndoEntry {
   /** Amount spent per ledger category (refunded on undo). */
   spent: Array<[ExpenseCategory, number]>;
   tx: Transaction;
+  /** Infrastructure written off (bulldozing), written back on undo. */
+  writeOff?: number;
 }
 
 export interface CommandResult {
@@ -77,6 +110,10 @@ function ledgerSplit(b: CostBreakdown): Array<[ExpenseCategory, number]> {
   return out.filter(([, v]) => v !== 0);
 }
 
+function fmt(n: number): string {
+  return `$${Math.round(n).toLocaleString('en-US')}`;
+}
+
 export function consistPrice(engineId: string, cargos: string[]): number {
   const e = ENGINE_BY_ID.get(engineId);
   if (!e) return Infinity;
@@ -92,7 +129,9 @@ export class Game {
   readonly params: MapParams;
   readonly world: World;
   readonly rng: Rng;
-  readonly company: Company;
+  /** All railroad companies; index 0 is the player's. */
+  readonly companies: Company[];
+  readonly chairman: Chairman;
   readonly economy: Economy;
   readonly trains: TrainSystem;
   readonly settings: GameSettings;
@@ -100,16 +139,21 @@ export class Game {
   tick = 0;
   readonly undoStack: UndoEntry[] = [];
   private readonly growthRng: Rng;
+  private readonly marketRng: Rng;
   private listeners: Array<(e: GameEvent) => void> = [];
 
   constructor(params: MapParams, world?: World, settings?: Partial<GameSettings>) {
     this.params = params;
     this.world = world ?? generateWorld(params);
     this.rng = new Rng((params.seed ^ 0xa5a5a5a5) >>> 0);
-    this.company = new Company(this.rng.pick(COMPANY.names));
+    this.companies = [Company.found(0, this.rng.pick(COMPANY.names))];
+    const S = FINANCE.shares;
+    this.chairman = new Chairman('You', S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice);
     this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, ...settings };
     this.economy = new Economy(this.world, this.settings.model, this.rng.fork(11));
     this.growthRng = this.rng.fork(12);
+    this.marketRng = this.rng.fork(13);
+    this.chairman.yearStartWorth = this.netWorth();
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
     this.trains = new TrainSystem({
@@ -126,6 +170,11 @@ export class Game {
       },
       emit: (e) => this.emit(e),
     });
+  }
+
+  /** The player's company. */
+  get company(): Company {
+    return this.companies[0];
   }
 
   get day(): number {
@@ -159,13 +208,16 @@ export class Game {
       this.pruneUndo();
       this.economy.daily();
       this.trains.daily();
+      this.marketDaily();
       this.emit({ type: 'day', date });
       if (date.day === 1) {
+        this.financeMonthly(date);
         this.monthly(date);
         this.trains.monthly();
         this.chargeTrackMaintenance();
         this.emit({ type: 'month', date });
         if (date.month === 0) {
+          this.financeYearly();
           this.trains.yearly();
           this.economy.yearly();
           this.emit({ type: 'year', date });
@@ -272,10 +324,14 @@ export class Game {
     const stationTiles = plan.stations.flatMap((id) => this.world.stations[id]?.tiles ?? []);
     if ([...plan.tiles, ...stationTiles].some((t) => busy.has(t))) return { ok: false, error: 'A train is using that track.', cost: 0 };
     if (!this.company.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost };
+    const value = this.replacementValue(plan.tiles, plan.stations);
     const tx = new Transaction(this.world);
     applyBulldoze(this.world, plan, tx);
     const what = plan.stations.length ? `${plan.stations.length} station${plan.stations.length > 1 ? 's' : ''}` : `${plan.tiles.length} track tile${plan.tiles.length > 1 ? 's' : ''}`;
-    this.commit(`Bulldoze ${what}`, tx, [['demolition', plan.cost]]);
+    const before = this.company.infrastructure;
+    this.company.writeDown(this.year, 'writeOffs', value);
+    this.commit(`Bulldoze ${what}`, tx, [['bulldozing', plan.cost]]);
+    this.undoStack[this.undoStack.length - 1].writeOff = before - this.company.infrastructure;
     return { ok: true, cost: plan.cost };
   }
 
@@ -302,6 +358,7 @@ export class Game {
       this.company.spend(year, cat, -amount);
       refund += amount;
     }
+    if (e.writeOff) this.company.writeDown(year, 'writeOffs', -e.writeOff);
     this.emit({ type: 'undone', label: e.label, refund });
     return { ok: true, cost: -refund };
   }
@@ -309,6 +366,222 @@ export class Game {
   private pruneUndo(): void {
     const limit = this.day - CONSTRUCTION.undo.windowDays;
     while (this.undoStack.length && this.undoStack[0].day < limit) this.undoStack.shift();
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Finance
+  // -------------------------------------------------------------------------------------
+
+  marketContext(): MarketContext {
+    const c = this.economy.cycle;
+    return { day: this.day, year: this.year, state: c.state, confidence: c.confidence };
+  }
+
+  /** Resale value of the company's trains. */
+  rollingStockValue(c: Company = this.company): number {
+    if (c.id !== 0) return 0;
+    return this.trains.trains.reduce((a, t) => a + resaleValue(t, this.tick), 0);
+  }
+
+  balance(c: Company = this.company): BalanceSheet {
+    return balanceSheet(c, this.rollingStockValue(c));
+  }
+
+  fair(c: Company = this.company): FairValue {
+    return fairValue(c, this.balance(c).bookValue, this.marketContext());
+  }
+
+  /** Credit rating, optionally as if `extraDebt` more bonds were issued. */
+  rating(c: Company = this.company, extraDebt = 0): CreditRating {
+    const b = this.balance(c);
+    const rate = bondRate(creditRating(b.debt, b.totalAssets, c.profitTrend, c.annualInterest), this.economy.cycle.state);
+    return creditRating(b.debt + extraDebt, b.totalAssets + extraDebt, c.profitTrend, c.annualInterest + extraDebt * rate);
+  }
+
+  /** Rate a new bond would carry now. */
+  newBondRate(c: Company = this.company): number {
+    return bondRate(this.rating(c, FINANCE.bonds.block), this.economy.cycle.state);
+  }
+
+  /** The chairman's net worth (cash + shares − shorts). */
+  netWorth(): number {
+    return account(this.chairman, this.companies).equity;
+  }
+
+  /** Replacement value of track tiles and stations (what bulldozing writes off). */
+  replacementValue(tiles: number[], stations: number[]): number {
+    const C = CONSTRUCTION;
+    let v = 0;
+    for (const t of tiles) {
+      const n = this.world.track.getIdx(t);
+      if (!n) continue;
+      if (n.kind === NODE_BRIDGE) v += C.bridges[n.span]?.perTile ?? C.track.single;
+      else if (n.kind === NODE_TUNNEL) v += C.tunnel.perTile;
+      else v += C.track.single + (n.double ? C.track.doubleExtra : 0);
+    }
+    for (const id of stations) {
+      const st = this.world.stations[id];
+      if (!st) continue;
+      v += STATION_BY_ID.get(st.kind)?.cost ?? 0;
+      for (const imp of st.improvements ?? []) v += IMPROVEMENT_BY_ID.get(imp)?.cost ?? 0;
+    }
+    return v;
+  }
+
+  private marketDaily(): void {
+    const ctx = this.marketContext();
+    for (const c of this.companies) stockDaily(c, this.fair(c).perShare, ctx, this.marketRng);
+    const call = enforceMargin(this.chairman, this.companies);
+    if (call && call.sold.length) this.emit({ type: 'marginCall', call });
+  }
+
+  private financeEvent(c: Company, text: string, tone: number): void {
+    this.emit({ type: 'finance', company: c.id, text, tone });
+  }
+
+  /** Month end: depreciation, interest, emergency bonds, salary, dividends, margin interest. */
+  private financeMonthly(date: GameDate): void {
+    const closing = dayToDate(this.day - 1, this.params.startYear).year;
+    const A = FINANCE.accounting;
+    for (const c of this.companies) {
+      c.writeDown(closing, 'depreciation', (c.infrastructure * A.infrastructureDepreciation) / 12);
+      closeMonth(c, closing);
+      // Dividends come out of the company's own cash, before any emergency borrowing.
+      if (FINANCE.dividends.months.includes(date.month)) {
+        const r = payDividend(c, this.year, (holder, amount) => {
+          if (holder === PLAYER) this.chairman.cash += amount;
+        });
+        if (r.perShare > 0) this.chairman.cash -= r.perShare * this.chairman.short(c.id);
+        if (r.skipped) {
+          c.note(this.day, 'Dividend passed (not enough cash)');
+          this.financeEvent(c, `${c.name} could not afford its dividend.`, -1);
+        }
+      }
+      if (c.cash < 0) {
+        const blocks = Math.ceil(-c.cash / FINANCE.bonds.block);
+        const rate = bondRate(this.rating(c, blocks * FINANCE.bonds.block), this.economy.cycle.state) + FINANCE.bonds.emergencyPenalty;
+        for (let i = 0; i < blocks; i++) c.addBond(this.year, this.day, FINANCE.bonds.block, rate, true);
+        c.note(this.day, `Emergency bonds: ${fmt(blocks * FINANCE.bonds.block)} at ${(rate * 100).toFixed(1)}%`);
+        this.financeEvent(c, `${c.name} ran out of cash: the bank forced ${blocks} emergency bond${blocks > 1 ? 's' : ''} at ${(rate * 100).toFixed(1)}%.`, -1);
+      }
+      c.stock.monthOpen = c.stock.price;
+    }
+    const salary = A.chairmanSalaryPerYear / 12;
+    this.company.spend(this.year, 'salary', salary);
+    this.chairman.cash += salary;
+    chargeMarginInterest(this.chairman, baseRate(this.economy.cycle.state));
+    this.chairman.worthHistory.push(Math.round(this.netWorth()));
+    if (this.chairman.worthHistory.length > 240) this.chairman.worthHistory.shift();
+  }
+
+  /** Year end: bond maturities, year record, year-end report. */
+  private financeYearly(): void {
+    const closing = this.year - 1;
+    for (const c of this.companies) {
+      for (const b of [...c.bonds]) {
+        if (b.maturityYear <= this.year) {
+          c.removeBond(this.year, b.id);
+          this.financeEvent(c, `A ${fmt(b.principal)} bond of ${c.name} matured and was repaid.`, 0);
+        }
+      }
+      const prev = c.history[c.history.length - 1];
+      const record: YearRecord = {
+        year: closing,
+        revenue: c.revenueIn(closing) + c.otherIncomeIn(closing),
+        operatingCosts: c.operatingCostsIn(closing),
+        netProfit: c.netProfitIn(closing),
+        bookValue: this.balance(c).bookValue,
+        price: c.stock.price,
+        shares: c.shares,
+        debt: c.debt,
+        dividendsPerShare: c.trailingDividend,
+      };
+      c.history.push(record);
+      if (c.id === 0) {
+        const worth = this.netWorth();
+        this.emit({ type: 'yearEnd', report: { year: closing, company: record, previous: prev, priceStart: c.stock.yearOpen, worthStart: this.chairman.yearStartWorth, worthEnd: worth } });
+        this.chairman.yearStartWorth = worth;
+      }
+      c.stock.yearOpen = c.stock.price;
+    }
+  }
+
+  issueBond(c: Company = this.company): CommandResult & { rate?: number } {
+    const block = FINANCE.bonds.block;
+    const after = this.rating(c, block);
+    if (after.def.id === 'D') return { ok: false, error: 'No lender will buy more bonds at this level of debt.', cost: 0 };
+    const rate = bondRate(after, this.economy.cycle.state);
+    c.addBond(this.year, this.day, block, rate);
+    c.note(this.day, `Issued a ${fmt(block)} bond at ${(rate * 100).toFixed(1)}%`);
+    return { ok: true, cost: -block, rate };
+  }
+
+  repayBond(id: number, c: Company = this.company): CommandResult {
+    const bond = c.bonds.find((b) => b.id === id);
+    if (!bond) return { ok: false, error: 'No such bond.', cost: 0 };
+    if (!c.canAfford(bond.principal)) return { ok: false, error: 'Not enough cash.', cost: bond.principal };
+    c.removeBond(this.year, id);
+    c.note(this.day, `Repaid a ${fmt(bond.principal)} bond`);
+    return { ok: true, cost: bond.principal };
+  }
+
+  issueShares(c: Company = this.company): ShareAction {
+    return issueShares(c, this.marketContext());
+  }
+
+  buybackShares(c: Company = this.company): ShareAction {
+    return buybackShares(c, this.marketContext());
+  }
+
+  splitStock(c: Company = this.company): ShareAction {
+    const r = splitStock(c, this.marketContext());
+    if (r.ok) {
+      const s = this.chairman.short(c.id);
+      if (s) this.chairman.shorts.set(c.id, s * 2);
+    }
+    return r;
+  }
+
+  /** Set the annual dividend per share (rounded to the step). */
+  setDividend(perShare: number, c: Company = this.company): CommandResult {
+    const step = FINANCE.dividends.step;
+    const v = Math.max(0, Math.round(perShare / step) * step);
+    if (Math.abs(v - c.dividendPerShare) < 1e-9) return { ok: true, cost: 0 };
+    const up = v > c.dividendPerShare;
+    c.dividendPerShare = Math.round(v * 100) / 100;
+    c.note(this.day, v === 0 ? 'Dividend suspended' : `Dividend ${up ? 'raised' : 'cut'} to $${v.toFixed(2)} a year`);
+    return { ok: true, cost: 0 };
+  }
+
+  private companyById(id: number): Company | undefined {
+    return this.companies.find((c) => c.id === id);
+  }
+
+  private trade(id: number, fn: (c: Company) => TradeResult): TradeResult {
+    const c = this.companyById(id);
+    if (!c) return { ok: false, error: 'No such company.', shares: 0, price: 0, cash: 0 };
+    return fn(c);
+  }
+
+  buyStock(companyId: number, n: number): TradeResult {
+    return this.trade(companyId, (c) => buyShares(this.chairman, this.companies, c, n));
+  }
+
+  sellStock(companyId: number, n: number): TradeResult {
+    return this.trade(companyId, (c) => sellShares(this.chairman, c, n));
+  }
+
+  shortStock(companyId: number, n: number): TradeResult {
+    return this.trade(companyId, (c) => shortShares(this.chairman, this.companies, c, n));
+  }
+
+  coverStock(companyId: number, n: number): TradeResult {
+    return this.trade(companyId, (c) => coverShort(this.chairman, c, n));
+  }
+
+  maxBuyShares(companyId: number): number {
+    const c = this.companyById(companyId);
+    return c ? maxBuy(this.chairman, this.companies, c) : 0;
   }
 
   // -------------------------------------------------------------------------------------
@@ -355,6 +628,7 @@ export class Game {
     const price = this.economy.industryPrice(ind);
     if (!this.company.canAfford(price)) return { ok: false, error: 'Not enough cash.', cost: price };
     this.company.spend(this.year, 'industries', price);
+    this.company.industryCost.set(industryId, price);
     this.economy.owned.add(industryId);
     this.emit({ type: 'built', label: `Bought ${ind.name}`, cost: price });
     return { ok: true, cost: price };
@@ -365,7 +639,11 @@ export class Game {
     if (!ind || !this.economy.owned.has(industryId)) return { ok: false, error: 'You don\'t own that industry.', cost: 0 };
     const value = Math.round(this.economy.industryPrice(ind) * ECONOMY.ownership.sellFraction);
     this.economy.owned.delete(industryId);
-    this.company.spend(this.year, 'industries', -value);
+    const cost = this.company.industryCost.get(industryId) ?? value;
+    this.company.industryCost.delete(industryId);
+    // Book the purchase cost out; any difference is a gain or loss.
+    this.company.spend(this.year, 'industries', -cost);
+    if (value !== cost) this.company.earnOther(this.year, 'industrySales', value - cost);
     return { ok: true, cost: -value };
   }
 

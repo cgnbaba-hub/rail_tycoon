@@ -122,3 +122,32 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   they never load cargo and count once per train.
 - Service buffs (maintenance shop, roundhouse) last 60 days after a stop; the sand house only
   helps on the next leg.
+
+## Finance (M5)
+- **Capital structure:** the company is founded with 100,000 shares at $10 ($1M cash); the
+  chairman buys 20 % from a $300,000 personal fortune, leaving $100,000 of personal cash. The
+  rest is held by "the public" (M6 adds rival barons as holders).
+- **Book value** = cash + trains at resale value + infrastructure at cost (2 %/yr
+  depreciation) + industries at cost − bonds − overdraft. Building track therefore moves cash
+  into infrastructure without changing book value; bulldozing writes the track off at its
+  replacement value (written back on undo). Write-offs are reported but not extrapolated by
+  investors.
+- **Share price** is fully explainable: it drifts (5 % a day) towards a fair value made of
+  book value, smoothed profit × P/E (by economic state) and a dividend premium, scaled by
+  market mood from *business confidence* — so the market turns before the economy does, in
+  line with the M4 leading indicator. The stock window spells out every component.
+- **Interest rates** follow the economy (panic = credit crunch, highest base rate) plus a
+  rating spread. Ratings are leverage bands with notches off for weak interest cover. A new
+  bond is refused when it would push the rating to D. Negative cash at month end forces
+  emergency bonds at a penalty instead of bankruptcy — bankruptcy and takeovers are M6.
+- **Dividends** are set as an annual amount per share and paid quarterly from company cash
+  before any emergency borrowing; if the cash isn't there the dividend is passed (and noted).
+- **Share issues** sell 10 % blocks at a 5 % discount, at most every 6 months; buybacks pay a
+  3 % premium. Every trade (company or personal) moves the price by 0.6 × the share of the
+  company traded, so big trades are visibly expensive.
+- **Personal account:** one combined margin account. Trades must leave equity ≥ 50 % of gross
+  positions; below 30 % a margin call closes positions (shorts first, biggest first). The
+  liquidation price shown is exact for the selected stock with other prices unchanged. The
+  chairman earns a salary ($24k/yr, a company expense) plus dividends.
+- **Year-end report** opens on Jan 1 and pauses the game; it can be switched off from the
+  report itself (stored in the browser).

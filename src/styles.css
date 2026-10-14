@@ -867,6 +867,11 @@ ol.route li.cur {
 #topbar > .news {
   flex-shrink: 1;
 }
+@media (max-width: 1700px) {
+  .news {
+    display: none;
+  }
+}
 @media (max-width: 1250px) {
   .news,
   .econ-conf {
@@ -877,4 +882,258 @@ ol.route li.cur {
   .brand {
     display: none;
   }
+}
+
+/* --- finance (M5) -------------------------------------------------------------------- */
+.btn.stock {
+  gap: 0.4em;
+  padding: 0.15em 0.5em;
+  background: var(--c-ink);
+}
+.btn.stock .tick {
+  color: var(--muted);
+}
+.btn.stock i {
+  font-style: normal;
+}
+.btn.stock i.bad,
+.bad {
+  color: var(--c-tile);
+}
+.btn.personal {
+  border: none;
+}
+.btn.personal span:last-child {
+  color: var(--c-gold);
+}
+.modal.finance {
+  max-width: min(60em, 96vw);
+  width: 60em;
+}
+.fin-head {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  flex-wrap: wrap;
+  margin-bottom: 0.4em;
+}
+.fin-head h2 {
+  margin: 0;
+}
+.fin-head h2 small {
+  color: var(--muted);
+  font-size: 1em;
+}
+.tabs {
+  display: flex;
+  gap: var(--px);
+}
+.tabs .btn[aria-selected='true'] {
+  background: var(--accent);
+  color: var(--c-ink);
+}
+.fin-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 1.2em;
+}
+.table.books td:not(:first-child),
+.table.books th:not(:first-child) {
+  text-align: right;
+}
+.table.books tr.sub td:first-child {
+  padding-left: 1em;
+  color: var(--muted);
+}
+.table.books tr.sum td {
+  border-top: var(--px) solid var(--c-steel);
+}
+.table.books tr.total td {
+  color: var(--accent);
+}
+.chart {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4em;
+  background: var(--c-ink);
+  border: var(--px) solid var(--c-slate);
+  padding: 0.2em 0.4em 0.2em 0.2em;
+}
+.chart svg {
+  display: block;
+  width: 100%;
+  height: 8em;
+}
+.chart.short svg {
+  height: 4em;
+}
+.chart .grid line {
+  stroke: var(--c-night);
+  stroke-width: 1;
+}
+.chart .vol rect {
+  fill: var(--c-slate);
+}
+.chart .price {
+  stroke: var(--c-gold);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 5.8em;
+  color: var(--muted);
+  text-align: right;
+}
+.chart.short .chart-axis {
+  height: 4em;
+}
+.chart-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.3em;
+}
+.chart-head .grow {
+  flex: 1;
+}
+.pie {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+}
+.pie svg {
+  flex: none;
+  width: 4em;
+  height: 4em;
+}
+.pie ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pie small {
+  color: var(--muted);
+  font-size: 1em;
+}
+.pie .you,
+.sw.you {
+  fill: var(--c-gold);
+  background: var(--c-gold);
+}
+.pie .public,
+.sw.public {
+  fill: var(--c-sky);
+  background: var(--c-sky);
+}
+.sw {
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.3em;
+}
+.why {
+  margin: 0;
+  padding-left: 1.1em;
+}
+.why li {
+  margin-bottom: 0.2em;
+}
+.why.notes {
+  list-style: none;
+  padding: 0;
+}
+.why small {
+  color: var(--muted);
+  font-size: 1em;
+  margin-right: 0.3em;
+}
+.rating {
+  display: inline-block;
+  padding: 0.1em 0.6em;
+  margin-bottom: 0.3em;
+  font-size: 2em;
+  background: var(--c-ink);
+  color: var(--c-meadow);
+}
+.rating.r3,
+.rating.r4 {
+  color: var(--c-gold);
+}
+.rating.r5,
+.rating.r6,
+.rating.r7 {
+  color: var(--c-tile);
+}
+.margin-bar {
+  display: grid;
+  grid-template-columns: 1fr 3em;
+  gap: 0.4em;
+  align-items: center;
+}
+.margin-bar .bar {
+  position: relative;
+  height: 0.6em;
+  background: var(--c-ink);
+  border: var(--px) solid var(--c-slate);
+}
+.margin-bar .bar i {
+  display: block;
+  height: 100%;
+  background: var(--c-meadow);
+}
+.margin-bar .bar i.warn {
+  background: var(--c-gold);
+}
+.margin-bar .bar i.low {
+  background: var(--c-tile);
+}
+.margin-bar em {
+  position: absolute;
+  top: -0.2em;
+  bottom: -0.2em;
+  width: var(--px);
+  background: var(--c-tile);
+}
+.margin-bar em.init {
+  background: var(--c-gold);
+}
+.margin-bar b {
+  font-weight: normal;
+  text-align: right;
+}
+.trade {
+  display: flex;
+  gap: 0.4em;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.3em;
+}
+.trade input {
+  width: 7em;
+}
+.check {
+  display: flex;
+  gap: 0.4em;
+  align-items: center;
+  margin-top: 0.6em;
+  color: var(--muted);
+}
+@media (max-width: 1500px) {
+  .money .label#company {
+    display: none;
+  }
+  #btn-new span {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .fin-grid {
+    grid-template-columns: 1fr;
+  }
+}
+#btn-new {
+  margin-left: auto;
 }

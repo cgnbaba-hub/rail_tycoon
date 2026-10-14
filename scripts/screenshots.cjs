@@ -21,7 +21,7 @@ const OUT = process.argv[2] || 'screenshots';
     const app = window.ironBaron;
     const g = app.game;
     app.setSpeed(0);
-    g.company.cash = 2500000;
+    for (let i = 0; i < 6; i++) g.issueBond();
     const towns = [...g.world.cities].sort((a, b) => b.population - a.population).slice(0, 4);
     const st = [];
     for (const town of towns) {
@@ -32,21 +32,36 @@ const OUT = process.argv[2] || 'screenshots';
     }
     const opts = (double) => ({ double, bridge: 'auto', tunnels: true, demolish: true, year: 1850 });
     const links = [];
-    for (let i = 0; i + 1 < st.length; i++) {
-      const r = g.buildTrack(st[i].tiles[st[i].tiles.length - 1], st[i + 1].tiles[0], opts(i === 0));
-      links.push(r.ok ? Math.round(r.cost) : r.error);
-    }
     const route = (a, b) => [{ station: a.id, load: 'auto', waitFull: false }, { station: b.id, load: 'auto', waitFull: false }];
     for (let i = 0; i + 1 < st.length; i++) {
+      const r = g.buildTrack(st[i].tiles[st[i].tiles.length - 1], st[i + 1].tiles[0], opts(false));
+      links.push(r.ok ? Math.round(r.cost) : r.error);
+      if (!r.ok) continue;
       g.buyTrain('columbia', ['passengers', 'passengers', 'mail', 'passengers'], route(st[i], st[i + 1]));
       if (i === 0) g.buyTrain('columbia', ['passengers', 'passengers', 'mail', '@dining'], route(st[i + 1], st[i]));
     }
     g.buildImprovement(st[0].id, 'water_tower');
     g.buildImprovement(st[0].id, 'hotel');
-    for (let i = 0; i < 24 * 400; i++) g.step();
+    for (let i = 0; i < 24 * 120; i++) g.step();
+    g.issueBond();
+    g.setDividend(0.5);
+    for (let i = 0; i < 24 * 280; i++) g.step();
     return { stations: st.map((s) => [s.id, s.name]), links, cash: Math.round(g.company.cash) };
   });
   console.log(JSON.stringify(info));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/11-year-end.png` });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  for (const [tab, n] of [['books', 12], ['bonds', 13], ['stock', 14], ['portfolio', 15]]) {
+    await page.keyboard.press('m');
+    await page.waitForTimeout(200);
+    await page.click(`[data-tab="${tab}"]`);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${OUT}/${n}-finance-${tab}.png` });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+  }
   // 2. network overview at 1x/half zoom
   await page.evaluate(() => {
     const app = window.ironBaron;
