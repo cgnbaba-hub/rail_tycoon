@@ -118,6 +118,7 @@ export class Camera {
   }
 
   centerOn(x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     this.x = x;
     this.y = y;
     this.clamp();

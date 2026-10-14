@@ -619,11 +619,15 @@ export class App implements ToolHost, TrainUiHost {
     window.addEventListener('keydown', (e) => {
       if (!this.game) return;
       const target = e.target as HTMLElement;
-      if (target.closest('input, select, textarea')) return;
+      // Escape closes a dialog even while one of its fields has focus.
       if (document.querySelector('.modal-backdrop')) {
-        if (e.key === 'Escape') this.closeModal();
+        if (e.key === 'Escape') {
+          this.closeModal();
+          e.preventDefault();
+        }
         return;
       }
+      if (target.closest('input, select, textarea')) return;
       const k = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && k === 'z') {
         this.undo();
