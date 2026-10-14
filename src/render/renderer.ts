@@ -1,12 +1,15 @@
+import { ENGINE_BY_ID } from '../data';
 import type { TrackPlan } from '../sim/construction';
 import { NODE_TUNNEL } from '../sim/track';
+import type { TrainSystem } from '../sim/train';
 import type { World } from '../sim/world';
 import { drawText, measureText, TEXT_HEIGHT } from './bitmapText';
 import type { Camera } from './camera';
-import { project, rotatedSize, tileToView, type Rot } from './iso';
+import { project, rotatedSize, tileToView, toView, vecToView, type Rot } from './iso';
 import { PALETTE } from './palette';
 import { pickTile } from './pick';
 import { CHUNK, WorldRenderData, renderChunk } from './terrain';
+import { loadLook, vehicleSprite } from './trainSprites';
 
 interface CachedChunk {
   canvas: HTMLCanvasElement;
@@ -33,6 +36,32 @@ export interface Overlay {
   planDim?: boolean;
   highlights: Highlight[];
 }
+
+interface Puff {
+  x: number;
+  y: number;
+  z: number;
+  born: number;
+}
+
+interface Floater {
+  x: number;
+  y: number;
+  z: number;
+  text: string;
+  color: string;
+  born: number;
+}
+
+/** Screen position of a vehicle (for picking). */
+interface VehicleHit {
+  train: number;
+  sx: number;
+  sy: number;
+}
+
+const PUFF_LIFE = 36; // sim ticks
+const FLOATER_MS = 2400;
 
 const CACHE_BUDGET_BYTES = 192 * 1024 * 1024;
 const BUILD_BUDGET_MS = 12;
@@ -70,6 +99,12 @@ export class Renderer {
   pendingChunks = 0;
   /** Incremented whenever world tiles changed (minimap etc. can refresh). */
   changeCounter = 0;
+  trains: TrainSystem | null = null;
+  selectedTrain = -1;
+  private puffs: Puff[] = [];
+  private lastPuffTime = 0;
+  private floaters: Floater[] = [];
+  private hits: VehicleHit[] = [];
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -120,10 +155,117 @@ export class Renderer {
     if (this.selection) this.drawHighlight(camera, this.selection);
     if (this.hover) this.drawHighlight(camera, this.hover);
     if (this.overlay.plan?.ok) this.drawPlan(camera, this.overlay.plan, !!this.overlay.planDim);
+    this.drawTrains(camera, time);
     this.drawSmoke(camera, time);
+    this.drawPuffs(camera, time);
     if (this.showLabels) {
       this.drawCityLabels(camera);
       this.drawStationLabels(camera);
+    }
+    this.drawFloaters(camera);
+  }
+
+  /** Show a rising money/label text in the world (e.g. delivery revenue). */
+  addFloater(x: number, y: number, z: number, text: string, color: string = PALETTE.gold): void {
+    this.floaters.push({ x, y, z, text, color, born: performance.now() });
+    if (this.floaters.length > 40) this.floaters.shift();
+  }
+
+  /** Train whose vehicle is drawn nearest to a buffer pixel (within a few pixels). */
+  pickTrain(sx: number, sy: number, radius = 9): number {
+    let best = -1;
+    let bestD = radius;
+    for (const h of this.hits) {
+      const d = Math.hypot(h.sx - sx, h.sy - sy);
+      if (d < bestD) {
+        bestD = d;
+        best = h.train;
+      }
+    }
+    return best;
+  }
+
+  private drawTrains(camera: Camera, time: number): void {
+    this.hits = [];
+    const sys = this.trains;
+    if (!sys) return;
+    const W = this.world.width;
+    const H = this.world.height;
+    type Item = { depth: number; sx: number; sy: number; sprite: ReturnType<typeof vehicleSprite>; train: number; engine: boolean };
+    const items: Item[] = [];
+    const emit = Math.floor(time / 3) !== Math.floor(this.lastPuffTime / 3) && time > this.lastPuffTime;
+    for (const t of sys.trains) {
+      const vehicles = sys.vehiclePositions(t);
+      vehicles.forEach((v, i) => {
+        if (v.tunnel) return;
+        const [vx, vy] = vecToView(v.dx, v.dy, camera.rot);
+        const vd = (((Math.round(Math.atan2(vy, vx) / (Math.PI / 4)) % 8) + 8) % 8);
+        const look = i === 0 ? { key: `engine:${t.engine}`, load: '' } : { key: `car:${t.cars[i - 1].type}`, load: loadLook(t.cars[i - 1].type, t.cars[i - 1].cargo, t.cars[i - 1].loads) };
+        const sprite = vehicleSprite(look, vd, camera.tw);
+        const [sx, sy] = camera.worldToScreen(v.x, v.y, v.z);
+        const [rx, ry] = toView(v.x, v.y, camera.rot, W, H);
+        items.push({ depth: rx + ry, sx, sy, sprite, train: t.id, engine: i === 0 });
+        this.hits.push({ train: t.id, sx, sy: sy - 4 * camera.scale });
+        if (i === 0 && emit && t.speed > 1 && !ENGINE_BY_ID.get(t.engine)?.look.diesel) {
+          this.puffs.push({ x: v.x + v.dx * 0.15, y: v.y + v.dy * 0.15, z: v.z + 2.6, born: time });
+        }
+      });
+    }
+    if (time > this.lastPuffTime || time < this.lastPuffTime - 100) this.lastPuffTime = time;
+    items.sort((a, b) => a.depth - b.depth);
+    const s = camera.scale;
+    for (const it of items) {
+      const { canvas, ax, ay } = it.sprite;
+      const x = Math.round(it.sx - ax * s);
+      const y = Math.round(it.sy - ay * s);
+      if (x > this.canvas.width || y > this.canvas.height || x + canvas.width * s < 0 || y + canvas.height * s < 0) continue;
+      this.ctx.drawImage(canvas, x, y, canvas.width * s, canvas.height * s);
+      if (it.engine && it.train === this.selectedTrain) {
+        // Marker above the selected train's engine.
+        const mx = Math.round(it.sx);
+        const my = Math.round(it.sy - (camera.tw * 0.9 + 6) * s);
+        this.ctx.fillStyle = PALETTE.ink;
+        this.ctx.fillRect(mx - 4, my - 1, 9, 6);
+        this.ctx.fillStyle = PALETTE.gold;
+        this.ctx.fillRect(mx - 3, my, 7, 1);
+        this.ctx.fillRect(mx - 2, my + 1, 5, 1);
+        this.ctx.fillRect(mx - 1, my + 2, 3, 1);
+        this.ctx.fillRect(mx, my + 3, 1, 1);
+      }
+    }
+  }
+
+  private drawPuffs(camera: Camera, time: number): void {
+    if (camera.tw < 16) {
+      this.puffs = [];
+      return;
+    }
+    this.puffs = this.puffs.filter((p) => time - p.born < PUFF_LIFE && time >= p.born);
+    const k = (camera.tw / 32) * camera.scale;
+    for (const p of this.puffs) {
+      const age = (time - p.born) / PUFF_LIFE;
+      const [sx, sy] = camera.worldToScreen(p.x, p.y, p.z + age * 4);
+      const r = Math.max(1, Math.round((1 + age * 2.5) * k));
+      this.ctx.fillStyle = age < 0.4 ? PALETTE.bone : age < 0.75 ? PALETTE.fog : PALETTE.steel;
+      const x = Math.round(sx);
+      const y = Math.round(sy);
+      this.ctx.fillRect(x - r, y - r + 1, r * 2, Math.max(1, r * 2 - 2));
+      this.ctx.fillRect(x - r + 1, y - r, Math.max(1, r * 2 - 2), r * 2);
+    }
+  }
+
+  private drawFloaters(camera: Camera): void {
+    const now = performance.now();
+    this.floaters = this.floaters.filter((f) => now - f.born < FLOATER_MS);
+    for (const f of this.floaters) {
+      const age = (now - f.born) / FLOATER_MS;
+      const [sx, sy] = camera.worldToScreen(f.x, f.y, f.z);
+      const w = measureText(f.text);
+      const x = Math.round(sx - w / 2);
+      const y = Math.round(sy - 22 * camera.scale - age * 18);
+      this.ctx.fillStyle = PALETTE.ink;
+      this.ctx.fillRect(x - 2, y - 2, w + 4, TEXT_HEIGHT + 4);
+      drawText(this.ctx, f.text, x, y, f.color);
     }
   }
 

@@ -37,7 +37,7 @@ tests/      Vitest specs for sim + pure render math
 |---|------|-----------------|
 | M1 | Engine & map ✅ | New-game dialog (seed, size, water, hills, forests, cities, start year). Procedural 64–256² map with corner heightmap, coasts, rivers, forests, mountains, named cities and ~20 industry types rendered in pixel-art iso. Pan (right/middle drag, WASD), wheel zoom (4 levels), Q/E rotate, minimap, hover/inspect panel, date + pause + 1/2/4/8× speed. |
 | M2 | Track & stations ✅ | Track tool with A* auto-pathing, slope % + cost preview, single/double track, bridges (3 types), tunnels, bulldoze, undo stack. Stations (3 sizes) with catchment overlay + highlighted industries. Company cash. |
-| M3 | Trains & cargo | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling / passing sidings on the track graph, load/unload, revenue formula (+ revenue estimate & payback in the track preview), fuel/maintenance, track maintenance, breakdowns, bridge speed/weight limits. |
+| M3 | Trains & cargo ✅ | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling / passing sidings on the track graph, load/unload, revenue formula (+ revenue estimate & payback in the track preview), fuel/maintenance, track maintenance, breakdowns, bridge speed/weight limits. |
 | M4 | Economy | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
 | M5 | Finance | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
@@ -79,3 +79,20 @@ Every milestone: `npm test` green, `npm run build` green, commit, short summary.
 Deferred on purpose: signals/passing sidings need trains (M3); station improvements and
 supply/demand gauges need the economy (M4); route revenue/payback estimates need the
 revenue formula (M3).
+
+## M3 detailed checklist
+
+- [x] Data: 14 fictional engines (1830–1936, steam → first diesel), 9 car types, cargo rates/weights, economy constants
+- [x] Physics: tractive effort (power, adhesion), rolling + grade resistance, braking; heavy trains crawl up grades; bridge speed/weight limits
+- [x] Train routing on the track graph (≤45° turns, reversing in stations)
+- [x] Block signalling: atomic reservations up to the next station or a train-length stretch of plain double track; single track = one train per block, double track = passing; no gridlock (regression-tested under load)
+- [x] Supply (towns: passengers/mail by covered population; raw industries) and demand (town class, industry inputs) per station; processing industries convert deliveries into outputs
+- [x] Loading/unloading, auto-load best-paying cargo, wait for full load; revenue = (base + per mile × miles) × time factor × demand factor
+- [x] Running costs: fuel (weight × distance), engine maintenance rising with age, track & station upkeep; breakdowns (reliability × age) with repair costs; optional wrecks
+- [x] Commands: buy, sell, edit route/consist, upgrade engine (trade-in), duplicate
+- [x] UI: new-train dialog with live estimate (legs, grades, slowest speed, revenue, profit, payback), train panel, sortable fleet table, station supply/demand gauges, follow camera, revenue pop-ups, batched breakdown notices; track preview shows revenue/payback when joining two stations
+- [x] Rendering: procedural 8-direction engine & car sprites (open/flat cars show their load), steam puffs, tunnels hide trains
+- [x] Tests: physics, revenue, breakdowns, routing, signalling (single & double track, junction networks), commands, estimates, determinism
+
+Deferred: caboose/dining-car bonuses and station improvements (M4), demand saturation and
+economic cycle factors in the revenue formula (M4), transfers between trains (M7 option).

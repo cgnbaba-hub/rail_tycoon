@@ -69,3 +69,29 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   be undone. (When trains exist, undo will also be blocked for track a train is standing on.)
 - Company finances are minimal until M5: one cash balance ($1,000,000 to start) and a
   per-year construction ledger.
+
+## Trains (M3)
+- **Time scale:** like the classic games, trains run on compressed time — 1 mph moves
+  0.0065 tiles per game hour, so a 40 mph train covers ~6 tiles (1.5 mi) per day and a
+  typical intercity trip takes about a week. Displayed speeds are real mph.
+- **Loads, not tons:** every car carries one *load* of one cargo; payments are per load.
+  Cargo weight per load (data) drives physics and fuel.
+- **Signalling:** trains reserve track ahead in atomic *blocks* that end at a station or at a
+  stretch of plain double track at least one train long. Single-track nodes are exclusive;
+  double-track nodes are shared only by trains using the same pair of edges in opposite
+  directions. Trains can therefore only stop where they block nobody coming the other way,
+  which prevents the gridlocks that naive per-tile reservation produces at junctions and
+  small loops. Stations have no hard platform limit (a hard limit could gridlock two busy
+  stations); platform counts are informational.
+- Trains may **reverse only in stations**. Track changes under a train trigger a re-plan;
+  bulldozing or undoing track a train stands on or has reserved is refused.
+- **Auto-load** (default per stop) reassigns empty cars to the best-paying cargo waiting at
+  the station, valued at the first later stop that demands it.
+- **Undemanded cargo** is kept aboard while a later stop demands it, otherwise unloaded at a
+  reduced rate (economic model factor). Cargo is never "delivered" back to its origin.
+- Distance for revenue is the straight line between origin and destination stations (so
+  direct lines pay best, as in the original).
+- Economic model defaults to *Basic* in M3 and can be chosen in the new-map dialog; M4 adds
+  the remaining model differences (saturation, price levels, industry ownership).
+- Wrecks are on by default but rare (old engines, overweight trains on light bridges); they
+  can be turned off in the new-map dialog.

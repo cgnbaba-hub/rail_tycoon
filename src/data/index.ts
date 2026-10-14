@@ -11,6 +11,9 @@ import timeJson from './time.json';
 import constructionJson from './construction.json';
 import stationsJson from './stations.json';
 import companyJson from './company.json';
+import enginesJson from './engines.json';
+import carsJson from './cars.json';
+import economyJson from './economy.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -22,6 +25,75 @@ export interface CargoDef {
   decay: 'none' | 'slow' | 'medium' | 'fast';
   group: string;
   era: [number, number];
+  /** Revenue per load: base + perMile × miles (before time/demand factors). */
+  base: number;
+  perMile: number;
+  /** Weight of one carload in tons. */
+  tons: number;
+  /** Car type id that carries it. */
+  car: string;
+}
+
+export interface CarDef {
+  id: string;
+  name: string;
+  tare: number;
+  price: number;
+  shape: 'coach' | 'closed' | 'open' | 'tank' | 'flat' | 'slatted' | 'caboose';
+  body: string;
+  roof: string;
+  trim: string;
+}
+
+export interface EngineDef {
+  id: string;
+  name: string;
+  era: [number, number];
+  price: number;
+  power: number;
+  weight: number;
+  adhesion: number;
+  topSpeed: number;
+  fuel: 'wood' | 'coal' | 'diesel' | 'electric';
+  reliability: number;
+  maintenance: number;
+  fuelBase: number;
+  fuelPerTon: number;
+  maxCars: number;
+  lifespan: number;
+  look: { body: string; trim: string; size: number; diesel?: boolean };
+}
+
+export type EconomicModel = 'basic' | 'advanced' | 'expert';
+
+export interface EconomyData {
+  model: EconomicModel;
+  models: Record<EconomicModel, { name: string; nonDemandedFactor: number; processorsNeedInputs: boolean }>;
+  townSupply: Record<string, number>;
+  townDemand: string[][];
+  processorWithoutInputs: number;
+  maxWaitingMonths: number;
+  timeValue: { idealMph: number; halfLifeDays: Record<string, number>; graceDays: number; minFactor: number };
+  loading: { hoursPerLoad: number; minDwellHours: number; maxWaitDays: number };
+  platforms: Record<string, number>;
+  fuelPrice: Record<string, number>;
+  trackMaintenance: { perTileYear: number; doubleFactor: number; bridgeFactor: number; tunnelFactor: number; stationPerYear: Record<string, number> };
+  engineWear: { maintenancePerYearOfAge: number };
+  breakdowns: { perDayAtReference: number; referenceReliability: number; ageExponent: number; repairDays: [number, number]; repairCostFraction: number };
+  wrecks: { enabledByDefault: boolean; perTileAtLifespan: number; ageExponent: number; overweightBridgeFactor: number };
+  resale: { newFraction: number; perYear: number; floor: number };
+  physics: {
+    tilesPerTickPerMph: number;
+    physicsSecondsPerTick: number;
+    brakeMphPerTick: number;
+    rollingLbfPerTon: [number, number, number];
+    gradeLbfPerTonPercent: number;
+    adhesionCoefficient: number;
+    stationApproachMph: number;
+    overweightBridgeMph: number;
+    carLength: number;
+    engineLength: number;
+  };
 }
 
 export interface LookPart {
@@ -71,6 +143,8 @@ export interface IndustryDef {
     spacing: number;
   };
   look: IndustryLook;
+  /** Loads per month (raw) or maximum output per month (processor). */
+  rate: number;
 }
 
 export interface BuildingDef {
@@ -217,6 +291,12 @@ export const STATION_NAME_SUFFIXES: string[] = stationsJson.nameSuffixes;
 export const COMPANY = companyJson as { startingCash: number; names: string[] };
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
+export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];
+export const CARS: CarDef[] = carsJson.cars as CarDef[];
+export const ECONOMY: EconomyData = economyJson as unknown as EconomyData;
+export const ENGINE_BY_ID: ReadonlyMap<string, EngineDef> = new Map(ENGINES.map((e) => [e.id, e]));
+export const CAR_BY_ID: ReadonlyMap<string, CarDef> = new Map(CARS.map((c) => [c.id, c]));
+
 export const CARGO_BY_ID: ReadonlyMap<string, CargoDef> = new Map(CARGO.map((c) => [c.id, c]));
 export const INDUSTRY_BY_ID: ReadonlyMap<string, IndustryDef> = new Map(INDUSTRIES.map((d) => [d.id, d]));
 
@@ -230,5 +310,9 @@ export function validateData(): void {
       throw new Error(`Industry ${ind.id} has unsupported footprint ${ind.size}`);
     }
   }
+  for (const c of CARGO) if (!CAR_BY_ID.has(c.car)) throw new Error(`Cargo ${c.id} uses unknown car ${c.car}`);
+  for (const lvl of ECONOMY.townDemand) for (const c of lvl) if (!CARGO_BY_ID.has(c)) throw new Error(`Town demand references unknown cargo ${c}`);
+  for (const c of Object.keys(ECONOMY.townSupply)) if (!CARGO_BY_ID.has(c)) throw new Error(`Town supply references unknown cargo ${c}`);
+  for (const e of ENGINES) if (!(e.fuel in ECONOMY.fuelPrice)) throw new Error(`Engine ${e.id} has unpriced fuel ${e.fuel}`);
   if (TIME.monthDays.length !== 12 || TIME.monthNames.length !== 12) throw new Error('time.json needs 12 months');
 }

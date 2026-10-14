@@ -1,0 +1,496 @@
+import { CARGO, CARGO_BY_ID, CAR_BY_ID, ECONOMY, TIME } from '../data';
+import { PALETTE, type PaletteName } from '../render/palette';
+import { estimateTrain, suggestConsist, type TrainEstimate } from '../sim/estimate';
+import { tilesToMiles } from '../sim/construction';
+import { consistPrice, type Game } from '../sim/game';
+import { stationDef, type Station } from '../sim/station';
+import {
+  carForCargo,
+  engineAgeYears,
+  engineDef,
+  engineTradeIn,
+  enginesAvailable,
+  resaleValue,
+  stationPlatforms,
+  type RouteStop,
+  type Train,
+} from '../sim/train';
+import { esc, fmtInt } from './dom';
+import { fmtMoney } from './tools';
+
+export interface TrainUiHost {
+  game: Game;
+  openModal(html: string, cls?: string): HTMLElement;
+  closeModal(): void;
+  toast(message: string, kind?: 'info' | 'error' | 'money'): void;
+  selectTrain(id: number | null): void;
+  invalidatePanel(): void;
+}
+
+const STATE_LABEL: Record<Train['state'], string> = {
+  running: 'Running',
+  signal: 'Waiting at signal',
+  loading: 'At station',
+  broken: 'Broken down',
+  noroute: 'No route!',
+};
+
+function chip(cargo: string, loaded = true): string {
+  const c = CARGO_BY_ID.get(cargo);
+  if (!c) return esc(cargo);
+  const color = PALETTE[c.color as PaletteName] ?? PALETTE.bone;
+  return `<span class="chip${loaded ? '' : ' empty'}" title="${esc(c.name)}${loaded ? ' (loaded)' : ' (empty)'}"><i class="swatch" style="background:${loaded ? color : 'transparent'};border-color:${color}"></i>${esc(c.name)}</span>`;
+}
+
+function row(label: string, value: string, cls = ''): string {
+  return `<div class="kv ${cls}"><span>${esc(label)}</span><b>${value}</b></div>`;
+}
+
+function years(n: number): string {
+  return n < 1 ? `${Math.round(n * 12)} mo` : `${n.toFixed(1)} yr`;
+}
+
+export function trainStatus(game: Game, t: Train): string {
+  const st = game.world.stations[t.route[t.stop]?.station];
+  switch (t.state) {
+    case 'loading':
+      return st ? `At ${esc(st.name)}` : 'At station';
+    case 'broken':
+      return `Broken down · ${Math.max(1, Math.ceil((t.brokenUntil - game.tick) / TIME.ticksPerDay))} days to repair`;
+    case 'signal':
+      return `Waiting for the line ahead to clear (${Math.floor((game.tick - t.waitSince) / TIME.ticksPerDay)} d)`;
+    case 'noroute':
+      return 'No route to the next stop — check the track';
+    default:
+      return `${Math.round(t.speed)} mph to ${st ? esc(st.name) : '—'}${t.struggling ? ' · struggling up a grade' : ''}`;
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// Train panel (context card)
+// ---------------------------------------------------------------------------------------
+
+export function trainPanelHtml(game: Game, t: Train): string {
+  const e = engineDef(t);
+  const age = engineAgeYears(t, game.tick);
+  const best = game.bestEngineFor(t);
+  const stops = t.route
+    .map((r, i) => {
+      const st = game.world.stations[r.station];
+      const cur = i === t.stop ? ' class="cur"' : '';
+      return `<li${cur}>${st ? esc(st.name) : '<em class="bad">removed</em>'}<small>${r.load === 'auto' ? 'auto' : 'keep'}${r.waitFull ? ' · full load' : ''}</small></li>`;
+    })
+    .join('');
+  const profit = t.stats.revenue - t.stats.costs;
+  const last = t.stats.lastRevenue - t.stats.lastCosts;
+  return `
+    <div class="card-title"><span class="tag">Train</span><span class="grow">${esc(t.name)}</span>
+      <button class="icon-btn" data-act="close" aria-label="Deselect" data-tip="Deselect" data-key="Esc">×</button></div>
+    ${row('Engine', esc(e.name))}
+    ${row('Status', `<span class="${t.state === 'noroute' || t.state === 'broken' ? 'bad' : ''}">${esc(STATE_LABEL[t.state])}</span>`)}
+    <p class="hint" style="margin:0.1em 0 0.3em">${trainStatus(game, t)}</p>
+    <div class="section">Cars</div>
+    <div class="cars">${t.cars.map((c) => chip(c.cargo, c.loads > 0)).join(' ')}</div>
+    <div class="section">Route</div>
+    <ol class="route">${stops}</ol>
+    ${row('Profit this year', `<span class="${profit < 0 ? 'bad' : ''}">${fmtMoney(profit)}</span>`)}
+    ${row('Last year', fmtMoney(last))}
+    ${row('Revenue / costs', `${fmtMoney(t.stats.revenue)} / ${fmtMoney(t.stats.costs)}`)}
+    ${row('Loads delivered', fmtInt(t.stats.deliveries))}
+    ${row('Engine age', `${years(age)} of ~${e.lifespan} yr`)}
+    ${row('Reliability', `${Math.round(e.reliability * 100)}% · ${t.stats.breakdowns} breakdown${t.stats.breakdowns === 1 ? '' : 's'}`)}
+    ${row('Resale value', fmtMoney(resaleValue(t, game.tick)))}
+    <div class="actions wrap">
+      <button class="btn small" data-act="edit">Edit route & cars</button>
+      <button class="btn small" data-act="follow">Follow</button>
+      <button class="btn small" data-act="dup">Duplicate</button>
+      <button class="btn small" data-act="upgrade" ${best ? '' : 'disabled'} data-tip="${best ? `Replace with ${esc(best.name)}` : 'No better engine on sale'}">Upgrade engine</button>
+      <button class="btn small danger" data-act="sell">Sell</button>
+    </div>`;
+}
+
+export function bindTrainPanel(root: HTMLElement, host: TrainUiHost & { follow(id: number): void }, t: Train): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const g = host.game;
+      switch (b.dataset.act) {
+        case 'close':
+          host.selectTrain(null);
+          break;
+        case 'edit':
+          openTrainDialog(host, t.id);
+          break;
+        case 'follow':
+          host.follow(t.id);
+          break;
+        case 'dup': {
+          const r = g.duplicateTrain(t.id);
+          host.toast(r.ok ? `Bought ${r.train!.name} (${fmtMoney(r.cost)})` : r.error ?? 'Cannot duplicate.', r.ok ? 'money' : 'error');
+          if (r.ok) host.selectTrain(r.train!.id);
+          break;
+        }
+        case 'upgrade': {
+          const best = g.bestEngineFor(t);
+          if (!best) return;
+          const ok = confirmModal(host, `Replace ${engineDef(t).name} with a new ${best.name}?`, `After the trade-in the upgrade costs ${fmtMoney(best.price - engineTradeIn(t, g.tick))}.`, 'Upgrade');
+          ok.then((yes) => {
+            if (!yes) return;
+            const r = g.upgradeEngine(t.id);
+            host.toast(r.ok ? `${t.name} now runs a ${best.name} (${fmtMoney(r.cost)})` : r.error ?? 'Cannot upgrade.', r.ok ? 'money' : 'error');
+            host.invalidatePanel();
+          });
+          break;
+        }
+        case 'sell': {
+          confirmModal(host, `Sell ${t.name}?`, `You will receive ${fmtMoney(resaleValue(t, g.tick))}. Cargo on board is lost.`, 'Sell').then((yes) => {
+            if (!yes) return;
+            const r = g.sellTrain(t.id);
+            host.toast(r.ok ? `Sold ${t.name} for ${fmtMoney(-r.cost)}` : r.error ?? 'Cannot sell.', r.ok ? 'money' : 'error');
+            host.selectTrain(null);
+          });
+          break;
+        }
+      }
+      host.invalidatePanel();
+    }),
+  );
+}
+
+/** Small confirmation dialog for risky actions. */
+export function confirmModal(host: TrainUiHost, title: string, body: string, okLabel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const m = host.openModal(`<h2>${esc(title)}</h2><p>${esc(body)}</p>
+      <div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="yes">${esc(okLabel)}</button></div>`);
+    m.querySelector<HTMLElement>('[data-a="no"]')!.addEventListener('click', () => {
+      host.closeModal();
+      resolve(false);
+    });
+    const yes = m.querySelector<HTMLElement>('[data-a="yes"]')!;
+    yes.addEventListener('click', () => {
+      host.closeModal();
+      resolve(true);
+    });
+    yes.focus();
+  });
+}
+
+// ---------------------------------------------------------------------------------------
+// Station cargo (appended to the station inspector)
+// ---------------------------------------------------------------------------------------
+
+export function stationEconomyHtml(game: Game, st: Station): string {
+  const se = game.economy.station(st.id);
+  const sc = game.economy.cargoAt(st.id);
+  if (!se) return '';
+  const cap = ECONOMY.maxWaitingMonths;
+  const waiting = Object.entries(se.supply)
+    .filter(([, rate]) => rate > 0.01)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cargo, rate]) => {
+      const have = sc.waiting[cargo] ?? 0;
+      const pct = Math.min(100, (have / Math.max(0.01, rate * cap)) * 100);
+      return `<div class="gauge" title="${esc(CARGO_BY_ID.get(cargo)?.name ?? cargo)}: ${have.toFixed(1)} loads waiting, ${rate.toFixed(1)} per month (holds up to ${cap} months)">
+        ${chip(cargo)}<span class="bar"><i style="width:${pct.toFixed(0)}%"></i></span><b>${Math.floor(have)}</b><small>+${rate.toFixed(1)}/mo</small></div>`;
+    })
+    .join('');
+  // Processor output arrives monthly and is not part of the steady supply.
+  const extra = Object.entries(sc.waiting)
+    .filter(([cargo, v]) => v >= 0.5 && !(cargo in se.supply))
+    .map(([cargo, v]) => `<div class="gauge">${chip(cargo)}<span class="bar"><i style="width:100%"></i></span><b>${Math.floor(v)}</b><small>made here</small></div>`)
+    .join('');
+  const accepts = [...se.accepts].map((c) => chip(c)).join(' ');
+  const delivered = Object.entries(sc.delivered)
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, n]) => row(CARGO_BY_ID.get(c)?.name ?? c, `${fmtInt(n)} loads`, 'sub'))
+    .join('');
+  return `
+    <div class="section">Waiting (supply)</div>
+    ${waiting || extra ? waiting + extra : '<p class="hint">Nothing produced in reach.</p>'}
+    <div class="section">Pays full price for (demand)</div>
+    <div class="cars">${accepts || '<span class="hint">Nothing — other cargo pays ' + Math.round(ECONOMY.models[game.economy.model].nonDemandedFactor * 100) + '%</span>'}</div>
+    <div class="section">Delivered here this year · ${fmtMoney(sc.revenue)}</div>
+    ${delivered || '<p class="hint">Nothing yet.</p>'}
+    ${row('Platforms in use', `${game.trains.signals.platformCount(st.id)} / ${stationPlatforms(st)}`)}
+    <div class="actions"><button class="btn small" data-act="newtrain" data-station="${st.id}">New train from here</button></div>`;
+}
+
+// ---------------------------------------------------------------------------------------
+// Buy / edit train dialog
+// ---------------------------------------------------------------------------------------
+
+interface Draft {
+  engine: string;
+  cars: string[];
+  route: RouteStop[];
+}
+
+function estimateHtml(est: TrainEstimate, game: Game): string {
+  if (!est.ok) return `<p class="bad">${esc(est.error ?? '')}</p>`;
+  const legs = est.legs
+    .map((l) => {
+      const a = game.world.stations[l.from]!;
+      const b = game.world.stations[l.to]!;
+      return `<tr><td>${esc(a.name)} → ${esc(b.name)}</td><td>${tilesToMiles(l.tiles).toFixed(1)} mi</td><td>${l.days.toFixed(1)} d</td><td class="${l.maxGrade > 3.5 ? 'bad' : ''}">${l.maxGrade.toFixed(1)}%</td><td>${Math.round(l.crawl)} mph</td><td>${fmtMoney(l.revenue)}</td></tr>`;
+    })
+    .join('');
+  const pay = Number.isFinite(est.paybackYears) ? `${est.paybackYears.toFixed(1)} years` : 'never at current supply';
+  return `
+    <table class="table compact"><thead><tr><th>Leg</th><th>Length</th><th>Time</th><th>Max grade</th><th>Slowest</th><th>Revenue/yr</th></tr></thead><tbody>${legs}</tbody></table>
+    <div class="est">
+      ${row('Round trip', `${est.roundTripDays.toFixed(1)} days (${est.tripsPerYear.toFixed(1)}/yr)`)}
+      ${row('Revenue / yr', fmtMoney(est.revenuePerYear))}
+      ${row('Running costs / yr', fmtMoney(est.costsPerYear), 'sub')}
+      ${row('Profit / yr', `<span class="${est.profitPerYear < 0 ? 'bad' : ''}">${fmtMoney(est.profitPerYear)}</span>`, 'total')}
+      ${row('Payback (train)', pay)}
+    </div>
+    <p class="hint">Estimate from current supply, demand and grades: revenue = (base + per-mile × miles) × time factor × demand factor per load.</p>`;
+}
+
+export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStations?: number[]): void {
+  const game = host.game;
+  const existing = trainId !== undefined ? game.trains.byId(trainId) : undefined;
+  const stations = game.world.liveStations().sort((a, b) => a.name.localeCompare(b.name));
+  if (stations.length < 2) {
+    host.toast('Build at least two connected stations first.', 'error');
+    return;
+  }
+  const engines = enginesAvailable(game.year);
+  const startStations = presetStations ?? [stations[0].id, stations[1].id];
+  const draft: Draft = existing
+    ? { engine: existing.engine, cars: existing.cars.map((c) => c.cargo), route: existing.route.map((r) => ({ ...r })) }
+    : {
+        engine: engines[0]?.id ?? '',
+        cars: [],
+        route: startStations.map((s) => ({ station: s, load: 'auto', waitFull: false })),
+      };
+  if (!existing) draft.cars = suggestConsist(game, draft.engine, draft.route);
+  const cargoOptions = CARGO.filter((c) => game.year >= c.era[0] && game.year <= c.era[1]);
+
+  const m = host.openModal('<div class="traindlg"></div>', 'wide');
+  const root = m.querySelector<HTMLElement>('.traindlg')!;
+
+  const render = () => {
+    const e = engines.find((x) => x.id === draft.engine) ?? (existing ? engineDef(existing) : undefined);
+    const maxCars = e?.maxCars ?? 1;
+    if (draft.cars.length > maxCars) draft.cars.length = maxCars;
+    const price = existing ? 0 : consistPrice(draft.engine, draft.cars);
+    const est = estimateTrain(game, draft.engine, draft.cars, draft.route, existing ? resaleValue(existing, game.tick) : price);
+    const engineCards = existing
+      ? `<p>${esc(engineDef(existing).name)} — use <b>Upgrade engine</b> in the train panel to replace it.</p>`
+      : `<div class="engines">${engines
+          .map(
+            (x) => `<button class="btn engine" data-engine="${x.id}" aria-pressed="${x.id === draft.engine}" ${x.price > game.company.cash ? 'data-poor="1"' : ''}>
+            <b>${esc(x.name)}</b><small>${fmtMoney(x.price)} · ${x.topSpeed} mph · ${fmtInt(x.power)} hp · ${x.maxCars} cars · ${Math.round(x.reliability * 100)}% · ${x.fuel}</small></button>`,
+          )
+          .join('')}</div>`;
+    const stationOpts = (sel: number) => stations.map((s) => `<option value="${s.id}"${s.id === sel ? ' selected' : ''}>${esc(s.name)} (${esc(stationDef(s.kind).name)})</option>`).join('');
+    const routeRows = draft.route
+      .map(
+        (r, i) => `<li><span class="num">${i + 1}</span><select data-stop="${i}">${stationOpts(r.station)}</select>
+          <select data-load="${i}" title="Loading at this stop"><option value="auto"${r.load === 'auto' ? ' selected' : ''}>Auto-load best paying</option><option value="keep"${r.load === 'keep' ? ' selected' : ''}>Keep car types</option></select>
+          <label class="check"><input type="checkbox" data-full="${i}"${r.waitFull ? ' checked' : ''}/> wait for full load</label>
+          <button class="btn small" data-del="${i}" ${draft.route.length <= 2 ? 'disabled' : ''} aria-label="Remove stop">×</button></li>`,
+      )
+      .join('');
+    const cargoOpts = (sel: string) => cargoOptions.map((c) => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${esc(c.name)} (${esc(CAR_BY_ID.get(c.car)?.name ?? c.car)})</option>`).join('');
+    const carRows = draft.cars
+      .map((c, i) => `<li><span class="num">${i + 1}</span><select data-car="${i}">${cargoOpts(c)}</select><button class="btn small" data-delcar="${i}" ${draft.cars.length <= 1 ? 'disabled' : ''} aria-label="Remove car">×</button></li>`)
+      .join('');
+    const extraCost = existing ? consistDelta(existing, draft.cars) : 0;
+    root.innerHTML = `
+      <h2>${existing ? `Edit ${esc(existing.name)}` : 'New train'}</h2>
+      <div class="cols">
+        <section>
+          <div class="section">Engine</div>
+          ${engineCards}
+        </section>
+        <section>
+          <div class="section">Route</div>
+          <ol class="stops">${routeRows}</ol>
+          <button class="btn small" data-act="addstop">+ Add stop</button>
+          <div class="section">Cars (${draft.cars.length}/${maxCars})</div>
+          <ol class="stops">${carRows}</ol>
+          <button class="btn small" data-act="addcar" ${draft.cars.length >= maxCars ? 'disabled' : ''}>+ Add car</button>
+          <button class="btn small" data-act="suggest">Suggest cars</button>
+        </section>
+      </div>
+      <div class="section">Estimate</div>
+      ${estimateHtml(est, game)}
+      <div class="actions">
+        <button class="btn" data-act="cancel">Cancel</button>
+        <button class="btn primary" data-act="ok">${existing ? `Apply${extraCost ? ` (${fmtMoney(extraCost)})` : ''}` : `Buy for ${fmtMoney(price)}`}</button>
+      </div>`;
+    bind();
+  };
+
+  const bind = () => {
+    root.querySelectorAll<HTMLButtonElement>('[data-engine]').forEach((b) =>
+      b.addEventListener('click', () => {
+        draft.engine = b.dataset.engine!;
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLSelectElement>('[data-stop]').forEach((s) =>
+      s.addEventListener('change', () => {
+        draft.route[Number(s.dataset.stop)].station = Number(s.value);
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLSelectElement>('[data-load]').forEach((s) =>
+      s.addEventListener('change', () => {
+        draft.route[Number(s.dataset.load)].load = s.value as RouteStop['load'];
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLInputElement>('[data-full]').forEach((s) =>
+      s.addEventListener('change', () => {
+        draft.route[Number(s.dataset.full)].waitFull = s.checked;
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) =>
+      b.addEventListener('click', () => {
+        draft.route.splice(Number(b.dataset.del), 1);
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLSelectElement>('[data-car]').forEach((s) =>
+      s.addEventListener('change', () => {
+        draft.cars[Number(s.dataset.car)] = s.value;
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLButtonElement>('[data-delcar]').forEach((b) =>
+      b.addEventListener('click', () => {
+        draft.cars.splice(Number(b.dataset.delcar), 1);
+        render();
+      }),
+    );
+    const act = (name: string, fn: () => void) => root.querySelector<HTMLElement>(`[data-act="${name}"]`)?.addEventListener('click', fn);
+    act('addstop', () => {
+      const last = draft.route[draft.route.length - 1].station;
+      const next = stations.find((s) => s.id !== last) ?? stations[0];
+      draft.route.push({ station: next.id, load: 'auto', waitFull: false });
+      render();
+    });
+    act('addcar', () => {
+      draft.cars.push(draft.cars[draft.cars.length - 1] ?? 'passengers');
+      render();
+    });
+    act('suggest', () => {
+      draft.cars = suggestConsist(game, draft.engine, draft.route);
+      render();
+    });
+    act('cancel', () => host.closeModal());
+    act('ok', () => {
+      if (existing) {
+        const r1 = game.setRoute(existing.id, draft.route);
+        if (!r1.ok) return host.toast(r1.error ?? 'Invalid route.', 'error');
+        const r2 = game.setConsist(existing.id, draft.cars);
+        if (!r2.ok) return host.toast(r2.error ?? 'Cannot change cars.', 'error');
+        host.toast(`${existing.name} updated${r2.cost ? ` (${fmtMoney(r2.cost)})` : ''}`, 'money');
+        host.closeModal();
+        host.invalidatePanel();
+        return;
+      }
+      const r = game.buyTrain(draft.engine, draft.cars, draft.route);
+      if (!r.ok) return host.toast(r.error ?? 'Cannot buy this train.', 'error');
+      host.toast(`${r.train!.name} (${engineDef(r.train!).name}) bought for ${fmtMoney(r.cost)}`, 'money');
+      host.closeModal();
+      host.selectTrain(r.train!.id);
+    });
+  };
+  render();
+}
+
+function consistDelta(t: Train, cargos: string[]): number {
+  let buy = 0;
+  let sell = 0;
+  cargos.forEach((c, i) => {
+    const type = carForCargo(c);
+    if (t.cars[i]?.type !== type) buy += CAR_BY_ID.get(type)?.price ?? 2000;
+  });
+  t.cars.forEach((c, i) => {
+    if (cargos[i] === undefined || carForCargo(cargos[i]) !== c.type) sell += (CAR_BY_ID.get(c.type)?.price ?? 2000) * 0.5;
+  });
+  return Math.round(buy - sell);
+}
+
+// ---------------------------------------------------------------------------------------
+// Fleet list
+// ---------------------------------------------------------------------------------------
+
+type SortKey = 'name' | 'engine' | 'state' | 'age' | 'profit' | 'last' | 'loads';
+
+export function openFleet(host: TrainUiHost & { follow(id: number): void }): void {
+  const game = host.game;
+  let sort: SortKey = 'profit';
+  let desc = true;
+  const m = host.openModal('<div class="fleet"></div>', 'wide');
+  const root = m.querySelector<HTMLElement>('.fleet')!;
+  const value = (t: Train, k: SortKey): number | string => {
+    switch (k) {
+      case 'name':
+        return t.id;
+      case 'engine':
+        return engineDef(t).name;
+      case 'state':
+        return t.state;
+      case 'age':
+        return engineAgeYears(t, game.tick);
+      case 'profit':
+        return t.stats.revenue - t.stats.costs;
+      case 'last':
+        return t.stats.lastRevenue - t.stats.lastCosts;
+      case 'loads':
+        return t.stats.deliveries;
+    }
+  };
+  const render = () => {
+    const rows = [...game.trains.trains].sort((a, b) => {
+      const va = value(a, sort);
+      const vb = value(b, sort);
+      const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+      return desc ? -c : c;
+    });
+    const th = (k: SortKey, label: string) => `<th><button class="sort" data-sort="${k}" aria-sort="${sort === k ? (desc ? 'descending' : 'ascending') : 'none'}">${esc(label)}${sort === k ? (desc ? ' ▼' : ' ▲') : ''}</button></th>`;
+    const total = rows.reduce((s, t) => s + t.stats.revenue - t.stats.costs, 0);
+    root.innerHTML = `
+      <h2>Trains (${rows.length}) · profit this year ${fmtMoney(total)}</h2>
+      ${
+        rows.length
+          ? `<div class="scroll"><table class="table"><thead><tr>${th('name', 'Train')}${th('engine', 'Engine')}${th('state', 'Status')}${th('age', 'Age')}${th('profit', 'Profit YTD')}${th('last', 'Last year')}${th('loads', 'Loads')}</tr></thead><tbody>
+        ${rows
+          .map(
+            (t) => `<tr data-train="${t.id}" tabindex="0"><td>${esc(t.name)}</td><td>${esc(engineDef(t).name)}</td><td class="${t.state === 'noroute' || t.state === 'broken' ? 'bad' : ''}">${esc(STATE_LABEL[t.state])}</td><td>${years(engineAgeYears(t, game.tick))}</td><td class="${t.stats.revenue - t.stats.costs < 0 ? 'bad' : ''}">${fmtMoney(t.stats.revenue - t.stats.costs)}</td><td>${fmtMoney(t.stats.lastRevenue - t.stats.lastCosts)}</td><td>${fmtInt(t.stats.deliveries)}</td></tr>`,
+          )
+          .join('')}
+        </tbody></table></div>`
+          : '<p class="hint">No trains yet. Build two stations, connect them with track and buy a train.</p>'
+      }
+      <div class="actions"><button class="btn" data-act="close">Close</button><button class="btn primary" data-act="new">New train</button></div>`;
+    root.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const k = b.dataset.sort as SortKey;
+        if (k === sort) desc = !desc;
+        else {
+          sort = k;
+          desc = true;
+        }
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLElement>('[data-train]').forEach((r) => {
+      const go = () => {
+        host.closeModal();
+        host.selectTrain(Number(r.dataset.train));
+        host.follow(Number(r.dataset.train));
+      };
+      r.addEventListener('click', go);
+      r.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+    });
+    root.querySelector('[data-act="close"]')?.addEventListener('click', () => host.closeModal());
+    root.querySelector('[data-act="new"]')?.addEventListener('click', () => openTrainDialog(host));
+  };
+  render();
+}

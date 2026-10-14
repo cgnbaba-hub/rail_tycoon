@@ -12,6 +12,10 @@ import { inspectTile, type Inspection } from './inspector';
 import { Minimap } from './minimap';
 import { crispFontSize } from './theme';
 import { BulldozeTool, StationTool, TrackTool, fmtMoney, type Tool, type ToolHost } from './tools';
+import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
+import { stopTile } from '../sim/train';
+import { ECONOMY } from '../data';
+import type { EconomicModel } from '../data';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
 const PAN_SPEED = 520; // buffer px per second for keyboard panning
@@ -26,7 +30,7 @@ interface RailButton {
   disabled?: () => boolean;
 }
 
-export class App implements ToolHost {
+export class App implements ToolHost, TrainUiHost {
   game!: Game;
   camera!: Camera;
   private readonly renderer: Renderer;
@@ -50,6 +54,13 @@ export class App implements ToolHost {
   private tool: Tool | null = null;
   private minimapStamp = -1;
   private inspectOverlay: Overlay = { highlights: [] };
+  /** Selected train (inspect mode) and whether the camera follows it. */
+  private selectedTrain: number | null = null;
+  private following: number | null = null;
+  private lastTrainPanel = 0;
+  private lastPanelDay = -1;
+  private pendingBreakdowns: string[] = [];
+  private breakdownTimer: number | null = null;
 
   constructor() {
     this.canvas = $('#world') as HTMLCanvasElement;
@@ -67,10 +78,14 @@ export class App implements ToolHost {
   // Game lifecycle
   // -------------------------------------------------------------------------------------
 
-  newGame(params: MapParams): void {
+  newGame(params: MapParams, settings?: { wrecks: boolean; model: EconomicModel }): void {
     this.tool?.deactivate?.();
     this.tool = null;
-    this.game = new Game(params);
+    this.game = new Game(params, undefined, settings);
+    this.selectedTrain = null;
+    this.following = null;
+    this.renderer.trains = this.game.trains;
+    this.game.on((e) => this.onGameEvent(e));
     const world = this.game.world;
     this.camera = new Camera(world.width, world.height);
     const biggest = [...world.cities].sort((a, b) => b.population - a.population)[0];
@@ -120,6 +135,14 @@ export class App implements ToolHost {
       this.camera.panByScreen(-px * step, -py * step);
     }
 
+    if (this.following !== null) {
+      const t = this.game.trains.byId(this.following);
+      if (t) {
+        const [x, y] = this.game.trains.headPosition(t);
+        this.camera.centerOn(x, y);
+      } else this.following = null;
+    }
+    this.renderer.selectedTrain = this.selectedTrain ?? -1;
     this.tool?.update?.();
     this.renderer.overlay = this.tool ? this.tool.overlay() : this.inspectOverlay;
     const time = this.game.tick + this.stepper.alpha;
@@ -161,6 +184,62 @@ export class App implements ToolHost {
 
   invalidatePanel(): void {
     this.panelDirty = true;
+  }
+
+  selectTrain(id: number | null): void {
+    this.selectedTrain = id;
+    if (id === null) this.following = null;
+    if (id !== null) {
+      this.setTool('inspect');
+      this.pinned = null;
+    }
+    this.invalidatePanel();
+  }
+
+  follow(id: number): void {
+    this.following = id;
+    this.selectedTrain = id;
+    this.invalidatePanel();
+  }
+
+  private onGameEvent(e: import('../sim/game').GameEvent): void {
+    const g = this.game;
+    const W = g.world.width;
+    switch (e.type) {
+      case 'delivery': {
+        const st = g.world.stations[e.station];
+        if (!st) break;
+        const tile = stopTile(st);
+        const z = g.world.track.getIdx(tile)?.z ?? 0;
+        this.renderer.addFloater((tile % W) + 0.5, Math.floor(tile / W) + 0.5, z, `+${fmtMoney(e.revenue)}`);
+        break;
+      }
+      case 'breakdown': {
+        // Batch breakdown notices so a big fleet doesn't flood the screen.
+        const t = g.trains.byId(e.train);
+        this.pendingBreakdowns.push(`${t?.name ?? 'A train'} (${e.days} d)`);
+        if (this.breakdownTimer === null) {
+          this.breakdownTimer = window.setTimeout(() => {
+            const list = this.pendingBreakdowns;
+            this.pendingBreakdowns = [];
+            this.breakdownTimer = null;
+            this.toast(list.length === 1 ? `${list[0]} broke down — repairs under way` : `${list.length} trains broke down: ${list.slice(0, 3).join(', ')}${list.length > 3 ? '…' : ''}`, 'error');
+          }, 1500);
+        }
+        break;
+      }
+      case 'wreck':
+        this.toast(`${e.name} was wrecked! Engine and cargo are lost.`, 'error');
+        this.renderer.addFloater(e.x, e.y, 1, 'WRECK', '#cf5a39');
+        if (this.selectedTrain === e.train) this.selectTrain(null);
+        break;
+      case 'noroute': {
+        const t = g.trains.byId(e.train);
+        this.toast(`${t?.name ?? 'A train'} has no route to its next stop.`, 'error');
+        break;
+      }
+    }
+    if (e.type !== 'day' && e.type !== 'month') this.invalidatePanel();
   }
 
   setTool(id: string): void {
@@ -209,6 +288,7 @@ export class App implements ToolHost {
       { id: 'track', icon: 'track', tip: 'Lay track — drag to auto-route', key: 'T', action: () => this.setTool('track'), pressed: () => this.tool?.id === 'track' },
       { id: 'station', icon: 'station', tip: 'Build station — shows catchment', key: 'B', action: () => this.setTool('station'), pressed: () => this.tool?.id === 'station' },
       { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
+      { id: 'trains', icon: 'train', tip: 'Trains — fleet list and new trains', key: 'F', action: () => openFleet(this) },
       {
         id: 'undo',
         icon: 'undo',
@@ -317,6 +397,25 @@ export class App implements ToolHost {
       this.tool.bindPanel?.(el);
       return;
     }
+    if (this.selectedTrain !== null) {
+      const t = this.game.trains.byId(this.selectedTrain);
+      if (!t) {
+        this.selectedTrain = null;
+      } else {
+        this.renderer.hover = null;
+        this.renderer.selection = null;
+        this.inspectOverlay = { highlights: [] };
+        const now = performance.now();
+        if (!this.panelDirty && now - this.lastTrainPanel < 400) return;
+        if (el.matches(':hover') && !this.panelDirty && now - this.lastTrainPanel < 1500) return;
+        this.lastTrainPanel = now;
+        this.panelDirty = false;
+        this.lastPanelKey = '';
+        el.innerHTML = trainPanelHtml(this.game, t);
+        bindTrainPanel(el, this, t);
+        return;
+      }
+    }
     const tile = this.pinned ?? this.hoverTile;
     const world = this.game.world;
     let insp: Inspection | null = null;
@@ -325,6 +424,9 @@ export class App implements ToolHost {
     this.renderer.selection = insp && this.pinned ? { rect: insp.rect, color: '#f3f5fb' } : null;
     this.inspectOverlay = { highlights: insp?.extraHighlights ?? [] };
     const key = tile ? `${tile[0]},${tile[1]},${this.pinned ? 1 : 0}` : 'none';
+    // Station cargo changes daily.
+    if (insp?.kind === 'station' && this.game.day !== this.lastPanelDay) this.panelDirty = true;
+    this.lastPanelDay = this.game.day;
     if (key === this.lastPanelKey && !this.panelDirty) return;
     this.lastPanelKey = key;
     this.panelDirty = false;
@@ -332,10 +434,12 @@ export class App implements ToolHost {
       el.innerHTML = `
         <div class="card-title"><span class="grow">Welcome, Chairman</span></div>
         <p class="hint" style="margin-top:0">You run <b>${esc(this.game.company.name)}</b>. Connect towns and industries:
-        pick <kbd>T</kbd> and drag to lay track, <kbd>B</kbd> to place stations. Right-drag or WASD pans, wheel zooms, Q/E rotates.</p>
+        <kbd>B</kbd> places stations, <kbd>T</kbd> lays track (drag), <kbd>F</kbd> buys and manages trains. Right-drag or WASD pans, wheel zooms, Q/E rotates.</p>
         <div class="kv"><span>Towns</span><b>${world.cities.length}</b></div>
         <div class="kv"><span>Industries</span><b>${world.industries.length}</b></div>
         <div class="kv"><span>Stations</span><b>${world.liveStations().length}</b></div>
+        <div class="kv"><span>Trains</span><b>${this.game.trains.trains.length}</b></div>
+        <div class="kv"><span>Revenue this year</span><b>${fmtMoney(this.game.company.revenueIn(this.game.year))}</b></div>
         <div class="kv"><span>Map</span><b>${world.width}×${world.height}</b></div>`;
       return;
     }
@@ -345,8 +449,14 @@ export class App implements ToolHost {
         <span class="tag">${tag}</span><span class="grow" title="${esc(insp.title)}">${esc(insp.title)}</span>
         ${this.pinned ? `<button class="icon-btn" id="unpin" aria-label="Unpin" data-tip="Unpin" data-key="Esc">${icon('close')}</button>` : ''}
       </div>
-      ${insp.html}`;
+      ${insp.html}
+      ${insp.stationId !== undefined && this.game.world.stations[insp.stationId] ? stationEconomyHtml(this.game, this.game.world.stations[insp.stationId]!) : ''}`;
     document.getElementById('unpin')?.addEventListener('click', () => (this.pinned = null));
+    el.querySelector<HTMLElement>('[data-act="newtrain"]')?.addEventListener('click', (ev) => {
+      const sid = Number((ev.currentTarget as HTMLElement).dataset.station);
+      const other = this.game.world.liveStations().find((s) => s.id !== sid);
+      openTrainDialog(this, undefined, other ? [sid, other.id] : undefined);
+    });
   }
 
   // -------------------------------------------------------------------------------------
@@ -394,6 +504,7 @@ export class App implements ToolHost {
         }
         if (drag.moved > 3) {
           c.classList.add('panning');
+          this.following = null;
           this.camera.panByScreen(dx, dy);
         }
         return;
@@ -417,7 +528,14 @@ export class App implements ToolHost {
       const wasClick = d.moved <= 3 && d.button === 0;
       if (!wasClick) return;
       if (this.tool) this.tool.pointerUp?.(tile);
-      else this.pinned = tile;
+      else {
+        const hit = this.renderer.pickTrain(x, y, 9 * this.camera.scale);
+        if (hit >= 0) this.selectTrain(hit);
+        else {
+          this.selectedTrain = null;
+          this.pinned = tile;
+        }
+      }
       this.invalidatePanel();
     };
     c.addEventListener('pointerup', end);
@@ -462,6 +580,7 @@ export class App implements ToolHost {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'w', 'a', 's', 'd'].includes(k)) {
         this.keysDown.add(k);
+        this.following = null;
         e.preventDefault();
         return;
       }
@@ -492,6 +611,9 @@ export class App implements ToolHost {
           break;
         case 'x':
           this.setTool('bulldoze');
+          break;
+        case 'f':
+          openFleet(this);
           break;
         case 'q':
           this.camera.rotate(-1);
@@ -525,6 +647,7 @@ export class App implements ToolHost {
           break;
         case 'escape':
           if (this.tool) this.setTool('inspect');
+          else if (this.selectedTrain !== null) this.selectTrain(null);
           else this.pinned = null;
           break;
         default:
@@ -565,13 +688,13 @@ export class App implements ToolHost {
   // Dialogs
   // -------------------------------------------------------------------------------------
 
-  private closeModal(): void {
+  closeModal(): void {
     $('#modal-root').innerHTML = '';
   }
 
-  private openModal(html: string): HTMLElement {
+  openModal(html: string, cls = ''): HTMLElement {
     const root = $('#modal-root');
-    root.innerHTML = `<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
+    root.innerHTML = `<div class="modal-backdrop"><div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div></div>`;
     const backdrop = root.firstElementChild as HTMLElement;
     backdrop.addEventListener('pointerdown', (e) => {
       if (e.target === backdrop) this.closeModal();
@@ -594,6 +717,8 @@ export class App implements ToolHost {
         <div class="row"><label>Terrain</label>${sel('hills', ['flat', 'normal', 'mountainous'], p.hills)}</div>
         <div class="row"><label>Forests</label>${sel('forests', ['few', 'normal', 'many'], p.forests)}</div>
         <div class="row"><label>Towns</label>${sel('cities', ['few', 'normal', 'many'], p.cities)}</div>
+        <div class="row"><label>Economy</label>${sel('model', Object.keys(ECONOMY.models), this.game?.settings.model ?? ECONOMY.model)}</div>
+        <div class="row"><label>Wrecks</label>${sel('wrecks', ['on', 'off'], this.game ? (this.game.settings.wrecks ? 'on' : 'off') : ECONOMY.wrecks.enabledByDefault ? 'on' : 'off')}</div>
         <div class="row"><label for="ng-year">Start year</label>
           <input id="ng-year" name="startYear" type="number" min="${MAPGEN.startYears[0]}" max="${MAPGEN.startYears[1]}" step="1" value="${p.startYear}" /></div>
         <div class="actions">
@@ -619,8 +744,9 @@ export class App implements ToolHost {
         cities: fd.get('cities') as MapParams['cities'],
         startYear: Math.min(MAPGEN.startYears[1], Math.max(MAPGEN.startYears[0], Number.isFinite(year) ? year : 1850)),
       };
+      const settings = { model: fd.get('model') as EconomicModel, wrecks: fd.get('wrecks') === 'on' };
       this.closeModal();
-      withLoading('Surveying the land…', () => this.newGame(params));
+      withLoading('Surveying the land…', () => this.newGame(params, settings));
     });
     (m.querySelector('#ng-seed') as HTMLInputElement).focus();
   }
@@ -631,6 +757,8 @@ export class App implements ToolHost {
       ['V', 'Toggle single/double track (track tool)'],
       ['B', 'Build station (B again cycles size, R rotates)'],
       ['X', 'Bulldoze track / stations'],
+      ['F', 'Trains: fleet list, buy & edit trains'],
+      ['Click a train', 'Select it (panel shows cargo, route, profit)'],
       ['Ctrl+Z', 'Undo construction (full refund, within 7 days)'],
       ['I / Esc', 'Back to Inspect · Esc cancels a drag'],
       ['Right/middle drag', 'Pan the map'],
@@ -648,7 +776,7 @@ export class App implements ToolHost {
     const m = this.openModal(`
       <h2>Iron Baron — controls</h2>
       <div class="keys">${keys.map(([k, v]) => `<kbd>${esc(k)}</kbd><span>${esc(v)}</span>`).join('')}</div>
-      <p class="hint">Grades matter: the route preview colours each stretch by steepness and draws its elevation profile. Trains arrive in the next milestone.</p>
+      <p class="hint">Grades matter: heavy trains crawl up steep track. Single track carries one train at a time between stations (which act as passing points); double track lets trains pass anywhere.</p>
       <div class="actions"><button class="btn primary" id="help-ok">Got it</button></div>`);
     const ok = m.querySelector('#help-ok') as HTMLElement;
     ok.addEventListener('click', () => this.closeModal());

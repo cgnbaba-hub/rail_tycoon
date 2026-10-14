@@ -3,9 +3,10 @@
 An 8-bit, browser-based railroad business simulation — an homage to the late-90s railroad
 tycoon games, with original pixel art, an original pixel font and a modern, friction-free UI.
 
-> Status: **Milestone 2 (track & stations)** — survey a procedurally generated world, lay
-> auto-routed track with bridges and tunnels, and place stations with live catchment
-> previews. Trains, economy and the stock market follow in later milestones (see `PLAN.md`).
+> Status: **Milestone 3 (trains & cargo)** — build a railroad on a procedurally generated
+> world, buy steam engines, set routes and consists, and haul passengers, mail and freight
+> for profit. Industry chains & city growth (M4), the stock market (M5) and AI rivals (M6)
+> follow (see `PLAN.md`).
 
 ## Running
 
@@ -23,6 +24,8 @@ Dev helpers (no browser needed):
 ```bash
 npx vite-node scripts/preview.ts -- <seed> <size> <rot 0-3> <tile width 8|16|32> out.png
 npx vite-node scripts/mapstats.ts -- <seed> <size>
+npx vite-node scripts/balance.ts -- <seed> [engine] [cars]   # one-year economics check
+npx vite-node scripts/stress.ts                              # 120 trains, signalling + perf
 ```
 
 ## Controls
@@ -33,6 +36,8 @@ npx vite-node scripts/mapstats.ts -- <seed> <size>
 | `V` | Single / double track (track tool) |
 | `B` | Build station — hover shows the catchment and what it covers; `B` again cycles depot/station/terminal, `R` rotates |
 | `X` | Bulldoze track, bridges/tunnels (whole span) or stations |
+| `F` | Trains: sortable fleet list, buy a new train (engine, route, cars, live profit estimate) |
+| Click a train | Select it: status, cargo, route, profit; edit, follow, duplicate, upgrade engine, sell |
 | `Ctrl+Z` | Undo the last construction (full refund within 7 in-game days) |
 | `I` / `Esc` | Back to Inspect (`Esc` also cancels a drag; right-click cancels too) |
 | Right / middle drag (or left drag) | Pan |
@@ -50,14 +55,23 @@ npx vite-node scripts/mapstats.ts -- <seed> <size>
 
 The overview map in the lower right is clickable/draggable.
 
-## How to play (M2)
+## How to play
 
-You chair a new railroad with $1,000,000. Scout the map (hover anything for details), then
-place stations where their catchment covers big towns or chains of industries (coal + iron
-near a steel mill, grain + cattle near a food plant) and connect them with track. Watch the
-grade profile: steep lines are cheap to build but will slow heavy trains once they run (M3).
-Pause any time — building works while paused, and anything you build can be undone for a
-full refund for a week of game time.
+You chair a new railroad with $1,000,000.
+
+1. **Scout** — hover towns and industries; stations show what they would supply and demand.
+2. **Build stations** (`B`) whose catchment covers big towns or industry chains
+   (coal + iron near a steel mill, grain + cattle near a food plant).
+3. **Lay track** (`T`) from station to station; the preview shows cost, grades and — when
+   both ends are stations — the expected revenue and payback.
+4. **Buy a train** (`F` → New train, or *New train from here* in a station panel). The dialog
+   estimates trip times, the slowest speed on the steepest grade and the yearly profit.
+5. Watch the money roll in (`+$` pop-ups), keep an eye on breakdowns and old engines, and
+   upgrade or duplicate your best trains.
+
+Single track carries one train per block between stations; double track lets trains pass
+anywhere. Steep grades slow heavy trains to a crawl. Pause any time — building works while
+paused, and construction can be undone for a full refund for a week of game time.
 
 ## Project layout
 

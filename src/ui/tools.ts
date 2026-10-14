@@ -18,6 +18,7 @@ import {
 import type { Game } from '../sim/game';
 import { catchmentRect, stationDef, type Coverage } from '../sim/station';
 import { CARGO_BY_ID, INDUSTRY_BY_ID } from '../data';
+import { estimateConnection } from '../sim/estimate';
 import { esc, fmtInt } from './dom';
 import { FEET_PER_LEVEL } from './inspector';
 
@@ -343,22 +344,39 @@ export class TrackTool implements Tool {
       const steep = p.maxGrade > 3.5 ? ' <em class="bad">steep</em>' : p.maxGrade > 2 ? ' <em class="warn">heavy</em>' : '';
       body = `
         ${costRow(p.cost, game.company.cash)}
-        ${breakdownHtml(p.breakdown)}
         ${row('Length', `${tilesToMiles(p.lengthTiles).toFixed(1)} mi`)}
         ${row('Steepest grade', `${p.maxGrade.toFixed(1)}%${steep}`)}
-        ${p.bridges ? row('Bridges', String(p.bridges)) : ''}
-        ${p.tunnels ? row('Tunnels', String(p.tunnels)) : ''}
-        ${p.demolished.length ? row('Buildings razed', String(p.demolished.length)) : ''}
+        ${this.revenueHtml(p)}
         ${profileSvg(p)}
         ${gradeLegend()}
         ${searching ? '<p class="hint">Refining route…</p>' : ''}
-        <p class="hint">Revenue estimates appear once trains run (next milestone).</p>`;
+        <div class="section">Cost breakdown</div>
+        ${breakdownHtml(p.breakdown)}
+        ${p.bridges ? row('Bridges', String(p.bridges)) : ''}
+        ${p.tunnels ? row('Tunnels', String(p.tunnels)) : ''}
+        ${p.demolished.length ? row('Buildings razed', String(p.demolished.length)) : ''}`;
     }
     return `<div class="card-title"><span class="tag">Tool</span><span class="grow">Lay track</span></div>${options}${body}`;
   }
 
   bindPanel(root: HTMLElement): void {
     bindSegs(root, (n, v) => this.setOpt(n, v));
+  }
+
+  /** If the drag joins two stations, what a typical train there would earn. */
+  private revenueHtml(p: TrackPlan): string {
+    const world = this.host.game.world;
+    const sa = world.track.getIdx(p.from)?.station ?? -1;
+    const sb = world.track.getIdx(p.to)?.station ?? -1;
+    if (sa < 0 || sb < 0 || sa === sb) return '<p class="hint">Drag from station to station to see revenue and payback.</p>';
+    const est = estimateConnection(this.host.game, sa, sb, p.lengthTiles, p.maxGrade);
+    if (!est || !est.ok) return '';
+    const total = p.cost + est.price;
+    const payback = est.profitPerYear > 0 ? `${(total / est.profitPerYear).toFixed(1)} yr` : 'never';
+    return `<div title="Best engine on sale with a suggested consist, using current supply and demand at both stations">
+      ${row('Train revenue / yr', fmtMoney(est.revenuePerYear))}
+      ${row('Train profit / yr', fmtMoney(est.profitPerYear))}
+      ${row('Payback (track + train)', payback, 'total')}</div>`;
   }
 
   overlay(): Overlay {

@@ -86,6 +86,53 @@ turn); reused track costs `reusePerTile · L`; heuristic = octile distance · si
 
 **Company**: `startingCash` $1,000,000 (until shares/bonds arrive in M5).
 
+## Trains, cargo & revenue (`engines.json`, `cars.json`, `cargo.json`, `economy.json`)
+
+**Physics** (per tick = one game hour; `physics`):
+- tractive effort `F = min(power · 375 / max(v, 3), adhesion_tons · 2000 · 0.25)` lbf
+- resistance `R = tons · (2 + 0.02 v + 0.0006 v²) + tons · 20 · grade%` lbf
+- `Δv = (F − R) · 0.010968 / tons · physicsSecondsPerTick(40)` mph per tick, capped at the
+  engine's top speed and bridge limits (overweight on a bridge: 8 mph); never below a 3 mph
+  crawl on grades. Braking `brakeMphPerTick` (6); stopping distance `k·v²/(2b) + k·v`.
+- movement: `tilesPerTickPerMph` = 0.0065 (40 mph ≈ 6.2 tiles/day).
+- train weight = engine + Σ car tare + loads · cargo tons.
+
+**Supply** (loads/month at a station): towns `population_covered × townSupply`
+(passengers 0.0026, mail 0.0009 per person); raw industries `rate` loads/month. Shared equally
+when several stations cover the same building or industry. Stock is capped at
+`maxWaitingMonths` (3) of supply. Processing industries turn delivered input loads into the
+same number of output loads next month (up to `rate`); in the Basic model they also make
+`processorWithoutInputs` (2) loads/month unsupplied.
+
+**Demand**: towns by size class (`townDemand`), industries their inputs.
+
+**Revenue per load** = `(base + perMile · miles) · timeFactor · demandFactor · economyFactor`
+- miles = straight-line tiles between origin and destination station × 0.25
+- `timeFactor = max(minFactor, 0.5^(late / halfLife))`, `late = max(0, days − idealDays − graceDays)`,
+  `idealDays` = time a 40 mph train needs; half-lives: fast 8 d (passengers, mail, milk),
+  medium 18 d, slow 45 d, none for bulk; floor 0.25; grace 2 days.
+- `demandFactor` = 1 when the station demands the cargo, else the model factor
+  (Basic 0.75, Advanced 0.5, Expert 0.1). `economyFactor` = 1 until M4's economic cycle.
+
+**Loading**: dwell `minDwellHours (4) + hoursPerLoad (3) × loads moved`; "wait for full load"
+re-checks for cargo up to `maxWaitDays` (60).
+
+**Costs**:
+- fuel per tile = `0.25 mi × fuelPrice[fuel] × (fuelBase + fuelPerTon · tons)`
+  (wood 0.9, coal 1.0, diesel 1.3, electric 0.8)
+- engine maintenance per month = `maintenance / 12 × (1 + 0.05 · age_years)`
+- track upkeep per month = `perTileYear (90) / 12` per tile × 1.6 double × 2.5 bridge × 3.0 tunnel;
+  stations $1,500 / $3,000 / $6,000 per year
+- breakdowns: daily chance `0.0022 × (1 − reliability)/(1 − 0.85) × (1 + (age/lifespan)²)`;
+  repair 2–5 days costing 4 % of the engine price
+- wrecks (if enabled): chance per tile `4·10⁻⁶ × (age/lifespan)³` (× 50 when overweight on a bridge)
+- resale: engine `price × max(0.15, 0.75 − 0.04 · age)` + cars at half price; upgrades trade the
+  old engine in at that value.
+
+Reference check (`npx vite-node scripts/balance.ts -- 7`): two cities ~10 miles apart, one
+4-car Columbia: ≈ $180–240k revenue/year, ≈ $10k running costs, payback of track + train
+in ≈ 1.5–2.5 years.
+
 ## Rendering constants (code, visual only)
 - Light direction (view space) `(-0.6, 0.25, 0.76)`, height-to-tile ratio `Z_UNIT = 0.9`,
   `SHADE_GAIN = 2.2`: `t = 1 + (n·L − L_z) · gain` picks a position on a 3-colour ramp.

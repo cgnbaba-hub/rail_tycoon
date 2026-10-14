@@ -1,4 +1,4 @@
-import { BUILDINGS, CARGO_BY_ID, CONSTRUCTION, INDUSTRY_BY_ID, MAPGEN } from '../data';
+import { BUILDINGS, CARGO_BY_ID, CONSTRUCTION, ECONOMY, INDUSTRY_BY_ID, MAPGEN } from '../data';
 import type { Highlight } from '../render/renderer';
 import { gradePercent } from '../sim/construction';
 import { catchmentRect, stationCoverage, stationDef } from '../sim/station';
@@ -38,6 +38,7 @@ export interface Inspection {
   html: string;
   /** Extra outlines (e.g. a station's catchment). */
   extraHighlights?: Highlight[];
+  stationId?: number;
 }
 
 function cargoChip(id: string): string {
@@ -77,7 +78,9 @@ function cityHtml(world: World, city: City): string {
     row('Built-up radius', `${city.radius} tiles`) +
     row('Buildings', esc(mix || '—')) +
     row('Location', `${city.x}, ${city.y}`) +
-    `<p class="hint">Passenger & mail supply and goods demand arrive with the economy milestone.</p>`
+    row('Supplies / month', Object.entries(ECONOMY.townSupply).map(([c, r]) => `${(city.population * r).toFixed(1)} ${esc(CARGO_BY_ID.get(c)?.name ?? c)}`).join(', ')) +
+    row('Demands', (ECONOMY.townDemand[city.classIndex] ?? []).map(cargoChip).join(' ')) +
+    `<p class="hint">Stations whose catchment covers the town share its passengers and mail.</p>`
   );
 }
 
@@ -88,6 +91,7 @@ function industryHtml(world: World, ind: Industry): string {
     row('Type', def.kind === 'raw' ? 'Resource site' : 'Processing plant') +
     row('Produces', def.produces.map(cargoChip).join(' ') || '—') +
     row(def.kind === 'raw' ? 'Boosted by' : 'Needs', def.consumes.map(cargoChip).join(' ') || '—') +
+    row(def.kind === 'raw' ? 'Output' : 'Capacity', `${def.rate} loads / month`) +
     row('Footprint', `${ind.w}×${ind.h} tiles`) +
     row('Nearest town', city ? esc(city.name) : '—') +
     row('Location', `${ind.x}, ${ind.y}`)
@@ -113,14 +117,14 @@ function trackInspection(world: World, x: number, y: number): Inspection | null 
     return {
       title: `${st.name} ${def.name}`,
       kind: 'station',
+      stationId: st.id,
       rect: [x0, y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1],
       extraHighlights: [{ rect: [r[0], r[1], r[2] - r[0] + 1, r[3] - r[1] + 1], color: PALETTE.sky, dashed: true }],
       html:
         row('Size', `${esc(def.name)} · ${def.length} tile${def.length > 1 ? 's' : ''}`) +
         row('Catchment', `radius ${def.radius}`) +
         row('Towns served', towns) +
-        row('Industries', inds) +
-        `<p class="hint">Cargo supply & demand gauges arrive with trains and the economy.</p>`,
+        row('Industries', inds),
     };
   }
   const grades: string[] = [];

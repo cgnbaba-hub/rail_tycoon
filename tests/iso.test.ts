@@ -152,3 +152,15 @@ describe('picking', () => {
     }
   });
 });
+
+describe('vector rotation', () => {
+  it('vecToView inverts vecFromView', async () => {
+    const { vecToView } = await import('../src/render/iso');
+    for (const rot of ROTS) {
+      const [vx, vy] = vecToView(0.3, -0.7, rot);
+      const [x, y] = vecFromView(vx, vy, rot);
+      expect(x).toBeCloseTo(0.3);
+      expect(y).toBeCloseTo(-0.7);
+    }
+  });
+});

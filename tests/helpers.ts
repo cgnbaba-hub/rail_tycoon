@@ -24,3 +24,19 @@ export function addHill(w: World, cx: number, cy: number, levels: number): void 
     }
   }
 }
+
+/** Add a town of 3×3 houses whose block starts at (x, y). */
+export function addTown(w: World, name: string, x: number, y: number, population: number, classIndex = 1): number {
+  const cityId = w.cities.length;
+  const ids: number[] = [];
+  for (let dy = 0; dy < 3; dy++) {
+    for (let dx = 0; dx < 3; dx++) {
+      const id = w.buildings.length;
+      w.buildings.push({ id, cityId, x: x + dx, y: y + dy, defId: 'house', wall: 'cream', roof: 'tile', h: 9, pair: false });
+      w.occupant[w.tileIndex(x + dx, y + dy)] = (1 << 24) | (id + 1);
+      ids.push(id);
+    }
+  }
+  w.cities.push({ id: cityId, name, x: x + 1, y: y + 1, population, classIndex, radius: 2, buildingIds: ids });
+  return cityId;
+}

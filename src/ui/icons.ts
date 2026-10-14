@@ -16,6 +16,7 @@ const ICONS: Record<string, string[]> = {
   station: ['....X....', '...XXX...', '..XXXXX..', '.XXXXXXX.', '..X...X..', '..X.X.X..', '..X.X.X..', 'XXXXXXXXX', 'X.......X'],
   bulldoze: ['.........', '.XXXX....', '.X..X....', '.XXXXXXX.', 'XXXXXXXX.', 'XX.XX.XX.', '.XXXXXXX.', '.......XX', '......XXX'],
   undo: ['..X......', '.XX......', 'XXXXXXX..', '.XX....X.', '..X.....X', '........X', '.......X.', '..XXXXX..', '.........'],
+  train: ['.........', 'X..XXXXX.', 'XX.X...X.', 'XXXX...X.', 'XXXXXXXXX', 'XXXXXXXXX', '.X.X.X.X.', '.........', '.........'],
   center: ['....X....', '....X....', '..XXXXX..', '..X...X..', 'XXX.X.XXX', '..X...X..', '..XXXXX..', '....X....', '....X....'],
 };
 

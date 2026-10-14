@@ -1,0 +1,39 @@
+{
+  "_doc": "Cargo flow, revenue, running costs and train physics. See BALANCING.md for every formula.",
+  "model": "basic",
+  "models": {
+    "basic": { "name": "Basic", "nonDemandedFactor": 0.75, "processorsNeedInputs": false },
+    "advanced": { "name": "Advanced", "nonDemandedFactor": 0.5, "processorsNeedInputs": true },
+    "expert": { "name": "Expert", "nonDemandedFactor": 0.1, "processorsNeedInputs": true }
+  },
+  "townSupply": { "passengers": 0.0026, "mail": 0.0009 },
+  "townDemand": [
+    ["passengers", "mail", "food"],
+    ["passengers", "mail", "food", "goods", "lumber", "milk"],
+    ["passengers", "mail", "food", "goods", "lumber", "milk", "textiles", "paper", "petroleum", "cement"],
+    ["passengers", "mail", "food", "goods", "lumber", "milk", "textiles", "paper", "petroleum", "cement", "autos", "machinery", "steel"]
+  ],
+  "processorWithoutInputs": 2,
+  "maxWaitingMonths": 3,
+  "timeValue": { "idealMph": 40, "halfLifeDays": { "fast": 8, "medium": 18, "slow": 45 }, "graceDays": 2, "minFactor": 0.25 },
+  "loading": { "hoursPerLoad": 3, "minDwellHours": 4, "maxWaitDays": 60 },
+  "platforms": { "depot": 2, "station": 3, "terminal": 4 },
+  "fuelPrice": { "wood": 0.9, "coal": 1.0, "diesel": 1.3, "electric": 0.8 },
+  "trackMaintenance": { "perTileYear": 90, "doubleFactor": 1.6, "bridgeFactor": 2.5, "tunnelFactor": 3.0, "stationPerYear": { "depot": 1500, "station": 3000, "terminal": 6000 } },
+  "engineWear": { "maintenancePerYearOfAge": 0.05 },
+  "breakdowns": { "perDayAtReference": 0.0022, "referenceReliability": 0.85, "ageExponent": 2, "repairDays": [2, 5], "repairCostFraction": 0.04 },
+  "wrecks": { "enabledByDefault": true, "perTileAtLifespan": 0.000004, "ageExponent": 3, "overweightBridgeFactor": 50 },
+  "resale": { "newFraction": 0.75, "perYear": 0.04, "floor": 0.15 },
+  "physics": {
+    "tilesPerTickPerMph": 0.0065,
+    "physicsSecondsPerTick": 40,
+    "brakeMphPerTick": 6,
+    "rollingLbfPerTon": [2.0, 0.02, 0.0006],
+    "gradeLbfPerTonPercent": 20,
+    "adhesionCoefficient": 0.25,
+    "stationApproachMph": 12,
+    "overweightBridgeMph": 8,
+    "carLength": 0.42,
+    "engineLength": 0.52
+  }
+}

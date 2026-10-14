@@ -1,0 +1,14 @@
+{
+  "_doc": "Rolling stock. tare = empty weight (tons). shape drives the procedural sprite: closed (box with roof), coach (windows), open (load visible on top), tank (round-ish), flat (low deck with load). body/roof/trim are palette names.",
+  "cars": [
+    { "id": "coach", "name": "Passenger coach", "tare": 22, "price": 3500, "shape": "coach", "body": "brick", "roof": "night", "trim": "cream" },
+    { "id": "mail", "name": "Mail car", "tare": 18, "price": 3000, "shape": "closed", "body": "teal", "roof": "night", "trim": "bone" },
+    { "id": "box", "name": "Boxcar", "tare": 14, "price": 2200, "shape": "closed", "body": "rust", "roof": "loam", "trim": "soil" },
+    { "id": "hopper", "name": "Hopper", "tare": 13, "price": 2000, "shape": "open", "body": "slate", "roof": "night", "trim": "steel" },
+    { "id": "flat", "name": "Flatcar", "tare": 11, "price": 1800, "shape": "flat", "body": "loam", "roof": "loam", "trim": "soil" },
+    { "id": "tank", "name": "Tank car", "tare": 16, "price": 2800, "shape": "tank", "body": "night", "roof": "slate", "trim": "steel" },
+    { "id": "stock", "name": "Stock car", "tare": 13, "price": 2200, "shape": "slatted", "body": "brick", "roof": "oxblood", "trim": "wheat" },
+    { "id": "reefer", "name": "Refrigerator car", "tare": 17, "price": 3200, "shape": "closed", "body": "bone", "roof": "fog", "trim": "tile" },
+    { "id": "caboose", "name": "Caboose", "tare": 12, "price": 2500, "shape": "caboose", "body": "tile", "roof": "oxblood", "trim": "gold" }
+  ]
+}

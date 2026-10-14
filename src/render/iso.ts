@@ -54,6 +54,20 @@ export function vecFromView(dx: number, dy: number, rot: Rot): [number, number] 
   }
 }
 
+/** Rotate a direction vector from world space to view space. */
+export function vecToView(dx: number, dy: number, rot: Rot): [number, number] {
+  switch (rot) {
+    case 0:
+      return [dx, dy];
+    case 1:
+      return [-dy, dx];
+    case 2:
+      return [-dx, -dy];
+    case 3:
+      return [dy, -dx];
+  }
+}
+
 /** World tile → view tile. */
 export function tileToView(tx: number, ty: number, rot: Rot, W: number, H: number): [number, number] {
   const [rx, ry] = toView(tx + 0.5, ty + 0.5, rot, W, H);

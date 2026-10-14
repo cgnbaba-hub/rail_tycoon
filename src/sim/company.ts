@@ -1,6 +1,17 @@
 import { COMPANY } from '../data';
 
-export type ExpenseCategory = 'track' | 'stations' | 'bridges' | 'tunnels' | 'demolition' | 'refunds';
+export type ExpenseCategory =
+  | 'track'
+  | 'stations'
+  | 'bridges'
+  | 'tunnels'
+  | 'demolition'
+  | 'trains'
+  | 'fuel'
+  | 'maintenance'
+  | 'repairs'
+  | 'trackMaintenance'
+  | 'refunds';
 
 export const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   track: 'Track construction',
@@ -8,18 +19,28 @@ export const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   bridges: 'Bridges',
   tunnels: 'Tunnels',
   demolition: 'Demolition',
+  trains: 'Rolling stock',
+  fuel: 'Fuel',
+  maintenance: 'Engine maintenance',
+  repairs: 'Breakdown repairs',
+  trackMaintenance: 'Track & station upkeep',
   refunds: 'Undo refunds',
 };
 
+/** Capital spending (not part of operating profit). */
+export const CAPITAL_CATEGORIES: ReadonlySet<ExpenseCategory> = new Set(['track', 'stations', 'bridges', 'tunnels', 'demolition', 'trains', 'refunds']);
+
 /**
- * The player's railroad company. M2 only tracks cash and a construction ledger; the full
- * books (revenue, shares, bonds) arrive in M5.
+ * The player's railroad company. Until M5 adds shares and bonds this tracks cash, a ledger
+ * of spending by category and revenue by cargo, per year.
  */
 export class Company {
   name: string;
   cash: number;
   /** year → category → amount spent (refunds are negative). */
   readonly ledger = new Map<number, Map<ExpenseCategory, number>>();
+  /** year → cargo id → revenue. */
+  readonly revenue = new Map<number, Map<string, number>>();
 
   constructor(name: string, cash = COMPANY.startingCash) {
     this.name = name;
@@ -41,7 +62,29 @@ export class Company {
     y.set(category, (y.get(category) ?? 0) + amount);
   }
 
+  earn(year: number, cargo: string, amount: number): void {
+    this.cash += amount;
+    let y = this.revenue.get(year);
+    if (!y) {
+      y = new Map();
+      this.revenue.set(year, y);
+    }
+    y.set(cargo, (y.get(cargo) ?? 0) + amount);
+  }
+
   spentIn(year: number, category: ExpenseCategory): number {
     return this.ledger.get(year)?.get(category) ?? 0;
+  }
+
+  revenueIn(year: number): number {
+    let s = 0;
+    for (const v of this.revenue.get(year)?.values() ?? []) s += v;
+    return s;
+  }
+
+  operatingCostsIn(year: number): number {
+    let s = 0;
+    for (const [cat, v] of this.ledger.get(year) ?? []) if (!CAPITAL_CATEGORIES.has(cat)) s += v;
+    return s;
   }
 }
