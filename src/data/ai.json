@@ -1,0 +1,76 @@
+{
+  "_doc": "Rival railroad barons (all fictional), their personalities, and the rules for mergers, board votes and bankruptcy. See BALANCING.md.",
+  "barons": [
+    { "name": "Cornelius Vandermere", "company": "Vandermere Central", "ticker": "VCR", "color": "sky", "personality": "builder" },
+    { "name": "Collis Hartwell", "company": "Hartwell Pacific", "ticker": "HPR", "color": "tile", "personality": "expander" },
+    { "name": "Jasper Fenwick", "company": "Fenwick & Erie", "ticker": "FER", "color": "teal", "personality": "speculator" }
+  ],
+  "personalities": {
+    "builder": {
+      "name": "Cautious builder",
+      "desc": "Builds solid lines between big towns, keeps cash in reserve, avoids debt, pays dividends.",
+      "buildEveryMonths": 4,
+      "cashReserve": 150000,
+      "maxRatingIndex": 2,
+      "trainsPerRoute": 2,
+      "maxTrainsPerRoute": 4,
+      "routeTiles": [10, 28],
+      "competition": 0.5,
+      "dividendPayout": 0.35,
+      "stock": { "ownStake": 0.3, "buyBelow": 0.8, "sellAbove": 1.35, "short": false, "shortAbove": 9, "raid": false, "mergeAtStake": 0.6 }
+    },
+    "expander": {
+      "name": "Aggressive expander",
+      "desc": "Builds fast and far on borrowed money, crowds into served towns and swallows weak rivals.",
+      "buildEveryMonths": 2,
+      "cashReserve": 60000,
+      "maxRatingIndex": 5,
+      "trainsPerRoute": 3,
+      "maxTrainsPerRoute": 5,
+      "routeTiles": [8, 36],
+      "competition": 1.0,
+      "dividendPayout": 0,
+      "stock": { "ownStake": 0.35, "buyBelow": 0.85, "sellAbove": 1.5, "short": false, "shortAbove": 9, "raid": true, "mergeAtStake": 0.42 }
+    },
+    "speculator": {
+      "name": "Stock speculator",
+      "desc": "Builds a little, trades a lot: buys cheap shares, sells short what looks dear and raids weak railroads.",
+      "buildEveryMonths": 6,
+      "cashReserve": 100000,
+      "maxRatingIndex": 3,
+      "trainsPerRoute": 2,
+      "maxTrainsPerRoute": 3,
+      "routeTiles": [10, 24],
+      "competition": 0.8,
+      "dividendPayout": 0.15,
+      "stock": { "ownStake": 0.22, "buyBelow": 0.9, "sellAbove": 1.15, "short": true, "shortAbove": 1.3, "raid": true, "mergeAtStake": 0.45 }
+    }
+  },
+  "levels": {
+    "relaxed": { "name": "Relaxed", "build": 0.6, "trade": 0.5 },
+    "normal": { "name": "Normal", "build": 1.0, "trade": 1.0 },
+    "ruthless": { "name": "Ruthless", "build": 1.4, "trade": 1.6 }
+  },
+  "merger": {
+    "_doc": "A baron holding at least minStake of a company may propose merging it into the company he chairs. Target shareholders get acquirer shares worth the target price plus `premium`. Votes: the proposer's shares yes, the target's chairman no, other barons yes, the public yes with publicBase + premium x publicPerPremium (+ badYearBonus if the target's share price fell this year). More than half carries it.",
+    "premium": 0.15,
+    "minStake": 0.3,
+    "cooldownMonths": 12,
+    "publicBase": 0.1,
+    "publicPerPremium": 1.5,
+    "badYearBonus": 0.25
+  },
+  "board": {
+    "_doc": "Each January from the third year on, the shareholders of your company vote on you: your shares for you, the public with publicBase + perPriceChange x share-price change over the year + profitBonus (or - lossPenalty), rival barons against you unless rivals are friendly. Below half is a vote of no confidence; two in a row and you are out.",
+    "graceYears": 2,
+    "publicBase": 0.55,
+    "perPriceChange": 0.8,
+    "profitBonus": 0.1,
+    "lossPenalty": 0.2,
+    "warnBelow": 0.6
+  },
+  "bankruptcy": {
+    "_doc": "A company whose debts exceed its assets cannot borrow; if its cash is still negative after monthsInsolvent month-ends it goes bankrupt: its shares become worthless and its railway is torn up.",
+    "monthsInsolvent": 2
+  }
+}

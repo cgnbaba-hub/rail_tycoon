@@ -15,6 +15,8 @@ const TERRAIN_COLOR = [PAL.sea, PAL.sand, PAL.grass, PAL.pine, PAL.stone, PAL.sn
 export class Minimap {
   private image: HTMLCanvasElement | null = null;
   private world: World | null = null;
+  /** Palette colour name per company id: rival track is drawn in its company colour. */
+  ownerColors: string[] = [];
   private readonly ctx: CanvasRenderingContext2D;
   private dragging = false;
 
@@ -82,7 +84,10 @@ export class Minimap {
         if (occupantKind(occ) === OCC_BUILDING) c = PAL.brick;
         if (occupantKind(occ) === OCC_INDUSTRY) c = PAL.gold;
         const node = world.track.getIdx(i);
-        if (node && node.kind !== NODE_TUNNEL) c = node.station >= 0 ? PAL.snow : PAL.ink;
+        if (node && node.kind !== NODE_TUNNEL) {
+          const rival = node.owner !== 0 ? this.ownerColors[node.owner] : undefined;
+          c = rival ? (node.station >= 0 ? LIGHTER[PAL[rival as keyof typeof PAL]] : PAL[rival as keyof typeof PAL]) : node.station >= 0 ? PAL.snow : PAL.ink;
+        }
         const [r, g, b] = PALETTE_RGB[c];
         data.data[i * 4] = r;
         data.data[i * 4 + 1] = g;

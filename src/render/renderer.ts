@@ -91,6 +91,8 @@ export class Renderer {
   private cacheBytes = 0;
   private frame = 0;
   showGrid = false;
+  /** Palette colour name per company id (index 0 = the player). */
+  ownerColors: string[] = [];
   showLabels = true;
   hover: Highlight | null = null;
   selection: Highlight | null = null;
@@ -374,7 +376,7 @@ export class Renderer {
   }
 
   private buildChunk(key: string, cx: number, cy: number, rot: Rot, tw: number): void {
-    const { buf } = renderChunk(this.data, rot, tw, cx, cy, { grid: this.showGrid });
+    const { buf } = renderChunk(this.data, rot, tw, cx, cy, { grid: this.showGrid, ownerColors: this.ownerColors });
     const old = this.cache.get(key);
     if (old) this.cacheBytes -= old.bytes;
     const canvas = document.createElement('canvas');
@@ -526,7 +528,9 @@ export class Renderer {
       const node = this.world.track.getIdx(mid);
       if (!node || node.kind === NODE_TUNNEL) continue;
       const [sx, sy] = camera.worldToScreen((mid % W) + 0.5, Math.floor(mid / W) + 0.5, node.z);
-      this.label(sx, sy + 6 * camera.scale, st.name, PALETTE.cream, PALETTE.oxblood, PALETTE.gold);
+      const rival = st.owner !== 0 ? PALETTE[this.ownerColors[st.owner] as keyof typeof PALETTE] : undefined;
+      if (rival) this.label(sx, sy + 6 * camera.scale, st.name, PALETTE.cream, PALETTE.night, rival);
+      else this.label(sx, sy + 6 * camera.scale, st.name, PALETTE.cream, PALETTE.oxblood, PALETTE.gold);
     }
   }
 }

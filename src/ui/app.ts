@@ -1,7 +1,7 @@
 import { MAPGEN, TIME } from '../data';
 import { Camera, ZOOMS } from '../render/camera';
 import { Renderer, type Overlay } from '../render/renderer';
-import { Game } from '../sim/game';
+import { Game, type GameSettings } from '../sim/game';
 import { defaultMapParams } from '../sim/mapgen';
 import { seedFromString } from '../sim/rng';
 import { FixedStepper, formatDate } from '../sim/time';
@@ -17,7 +17,8 @@ import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvemen
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
-import type { EconomicModel } from '../data';
+import { AI, type AiLevel, type EconomicModel } from '../data';
+import { companyTag, openCompanies, openGameOver } from './rivals';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
 const PAN_SPEED = 520; // buffer px per second for keyboard panning
@@ -82,10 +83,10 @@ export class App implements ToolHost, TrainUiHost {
   // Game lifecycle
   // -------------------------------------------------------------------------------------
 
-  newGame(params: MapParams, settings?: { wrecks: boolean; model: EconomicModel }): void {
+  newGame(params: MapParams, settings?: Partial<GameSettings>): void {
     this.tool?.deactivate?.();
     this.tool = null;
-    this.game = new Game(params, undefined, settings);
+    this.game = new Game(params, undefined, { rivals: 2, ...settings });
     this.selectedTrain = null;
     this.following = null;
     this.econDirty = true;
@@ -96,6 +97,8 @@ export class App implements ToolHost, TrainUiHost {
     this.camera = new Camera(world.width, world.height);
     const biggest = [...world.cities].sort((a, b) => b.population - a.population)[0];
     if (biggest) this.camera.centerOn(biggest.x + 0.5, biggest.y + 0.5);
+    this.renderer.ownerColors = this.game.companies.map((c) => c.color);
+    this.minimap.ownerColors = this.renderer.ownerColors;
     this.renderer.setWorld(world);
     this.minimap.setWorld(world);
     this.tools = { track: new TrackTool(this), station: new StationTool(this), bulldoze: new BulldozeTool(this) };
@@ -259,6 +262,17 @@ export class App implements ToolHost, TrainUiHost {
         this.toast(e.text, e.tone < 0 ? 'error' : 'info');
         this.showNews(e.text, e.tone);
         break;
+      case 'rival':
+        this.showNews(e.text, e.tone);
+        if (e.tone !== 0) this.toast(e.text, e.tone < 0 ? 'error' : 'money');
+        break;
+      case 'gameOver':
+        this.setSpeed(0);
+        this.selectTrain(null);
+        this.setTool('inspect');
+        $('#company').textContent = `${this.game.company.name} — game over`;
+        openGameOver(this, e.over);
+        break;
       case 'marginCall': {
         const n = e.call.sold.reduce((a, s) => a + s.shares, 0);
         this.toast(`Margin call! Your broker closed ${n.toLocaleString('en-US')} shares to cover your loan.`, 'error');
@@ -332,6 +346,7 @@ export class App implements ToolHost, TrainUiHost {
       { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
       { id: 'trains', icon: 'train', tip: 'Trains — fleet list and new trains', key: 'F', action: () => openFleet(this) },
       { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => openFinance(this) },
+      { id: 'companies', icon: 'rivals', tip: 'Railroads — rivals, stakes, takeovers and board confidence', key: 'O', action: () => openCompanies(this) },
       {
         id: 'undo',
         icon: 'undo',
@@ -495,7 +510,8 @@ export class App implements ToolHost, TrainUiHost {
         <div class="kv"><span>Stations</span><b>${world.liveStations().length}</b></div>
         <div class="kv"><span>Trains</span><b>${this.game.trains.trains.length}</b></div>
         <div class="kv"><span>Revenue this year</span><b>${fmtMoney(this.game.company.revenueIn(this.game.year))}</b></div>
-        <div class="kv"><span>Map</span><b>${world.width}×${world.height}</b></div>`;
+        <div class="kv"><span>Map</span><b>${world.width}×${world.height}</b></div>
+        ${this.game.companies.length > 1 ? `<div class="section">Railroads</div>${this.game.companies.map((c) => `<div class="kv"><span>${companyTag(c)}</span><b>${c.defunct ? c.defunct : `$${c.stock.price.toFixed(2)}`}</b></div>`).join('')}<p class="hint"><kbd>O</kbd> shows rivals, stakes and takeovers.</p>` : ''}`;
       return;
     }
     const tag = insp.kind === 'city' ? 'Town' : insp.kind === 'industry' ? 'Industry' : insp.kind === 'station' ? 'Station' : insp.kind === 'track' ? 'Track' : 'Land';
@@ -512,7 +528,7 @@ export class App implements ToolHost, TrainUiHost {
     document.getElementById('unpin')?.addEventListener('click', () => (this.pinned = null));
     el.querySelector<HTMLElement>('[data-act="newtrain"]')?.addEventListener('click', (ev) => {
       const sid = Number((ev.currentTarget as HTMLElement).dataset.station);
-      const other = this.game.world.liveStations().find((s) => s.id !== sid);
+      const other = this.game.world.liveStations().find((s) => s.id !== sid && s.owner === this.game.company.id);
       openTrainDialog(this, undefined, other ? [sid, other.id] : undefined);
     });
   }
@@ -521,7 +537,12 @@ export class App implements ToolHost, TrainUiHost {
   private inspectionExtras(insp: Inspection): string {
     const g = this.game;
     const st = insp.stationId !== undefined ? g.world.stations[insp.stationId] : null;
-    if (st) return stationEconomyHtml(g, st) + stationDemandHtml(g, st) + improvementsHtml(g, st);
+    const tile = this.pinned ?? this.hoverTile;
+    const node = tile && (insp.kind === 'track' || insp.kind === 'station') ? g.world.track.get(tile[0], tile[1]) : undefined;
+    const owner = node ? g.companyById(node.owner) : undefined;
+    const ownerRow = owner ? `<div class="kv"><span>Owner</span><b>${companyTag(owner)}</b></div>` : '';
+    if (st) return ownerRow + stationEconomyHtml(g, st) + stationDemandHtml(g, st) + (st.owner === g.company.id ? improvementsHtml(g, st) : '');
+    if (ownerRow) return ownerRow;
     if (insp.industryId !== undefined) return industryEconomyHtml(g, g.world.industries[insp.industryId]);
     if (insp.cityId !== undefined) return townGrowthHtml(g, g.world.cities[insp.cityId]);
     return '';
@@ -725,6 +746,9 @@ export class App implements ToolHost, TrainUiHost {
         case 'm':
           openFinance(this);
           break;
+        case 'o':
+          openCompanies(this);
+          break;
         case 'n':
           this.openNewGameDialog();
           break;
@@ -805,6 +829,9 @@ export class App implements ToolHost, TrainUiHost {
         <div class="row"><label>Forests</label>${sel('forests', ['few', 'normal', 'many'], p.forests)}</div>
         <div class="row"><label>Towns</label>${sel('cities', ['few', 'normal', 'many'], p.cities)}</div>
         <div class="row"><label>Economy</label>${sel('model', Object.keys(ECONOMY.models), this.game?.settings.model ?? ECONOMY.model)}</div>
+        <div class="row"><label>Rivals</label>${sel('rivals', ['0', '1', '2', '3'], String(this.game?.settings.rivals ?? 2))}</div>
+        <div class="row"><label>Rival skill</label>${sel('aiLevel', Object.keys(AI.levels), this.game?.settings.aiLevel ?? 'normal')}</div>
+        <div class="row"><label>Rival attitude</label>${sel('friendly', ['ruthless', 'friendly'], this.game?.settings.friendlyAi ? 'friendly' : 'ruthless')}</div>
         <div class="row"><label>Wrecks</label>${sel('wrecks', ['on', 'off'], this.game ? (this.game.settings.wrecks ? 'on' : 'off') : ECONOMY.wrecks.enabledByDefault ? 'on' : 'off')}</div>
         <div class="row"><label for="ng-year">Start year</label>
           <input id="ng-year" name="startYear" type="number" min="${MAPGEN.startYears[0]}" max="${MAPGEN.startYears[1]}" step="1" value="${p.startYear}" /></div>
@@ -831,7 +858,13 @@ export class App implements ToolHost, TrainUiHost {
         cities: fd.get('cities') as MapParams['cities'],
         startYear: Math.min(MAPGEN.startYears[1], Math.max(MAPGEN.startYears[0], Number.isFinite(year) ? year : 1850)),
       };
-      const settings = { model: fd.get('model') as EconomicModel, wrecks: fd.get('wrecks') === 'on' };
+      const settings: Partial<GameSettings> = {
+        model: fd.get('model') as EconomicModel,
+        wrecks: fd.get('wrecks') === 'on',
+        rivals: Number(fd.get('rivals')),
+        aiLevel: fd.get('aiLevel') as AiLevel,
+        friendlyAi: fd.get('friendly') === 'friendly',
+      };
       this.closeModal();
       withLoading('Surveying the land…', () => this.newGame(params, settings));
     });
@@ -846,6 +879,7 @@ export class App implements ToolHost, TrainUiHost {
       ['X', 'Bulldoze track / stations'],
       ['F', 'Trains: fleet list, buy & edit trains'],
       ['M', 'Finance: books, bonds, stock, your portfolio'],
+      ['O', 'Railroads: rivals, stakes, mergers, board vote'],
       ['Click a train', 'Select it (panel shows cargo, route, profit)'],
       ['Ctrl+Z', 'Undo construction (full refund, within 7 days)'],
       ['I / Esc', 'Back to Inspect · Esc cancels a drag'],

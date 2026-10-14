@@ -167,6 +167,8 @@ export interface ChunkImage {
 export interface ChunkOptions {
   /** Draw a subtle tile grid. */
   grid?: boolean;
+  /** Palette colour name per company id: rival stations get roofs in their company colour. */
+  ownerColors?: string[];
 }
 
 export function renderChunk(data: WorldRenderData, rot: Rot, tw: number, cx: number, cy: number, opts: ChunkOptions = {}): ChunkImage {
@@ -889,7 +891,9 @@ class ChunkPainter {
     const ridgeAlongX = st.axis === 'x';
     const roofType = ridgeAlongX === (this.rot % 2 === 0) ? 'ridgeRx' : 'ridgeRy';
     const wall = colorIndex(L.wall);
-    this.box(vx0, vy0, vx1, vy1, z, z + L.h / 4, wall, colorIndex(L.roof), roofType, 1.25, PAL.gold);
+    const rival = st.owner !== 0 ? this.opts.ownerColors?.[st.owner] : undefined;
+    const roof = colorIndex(rival ?? L.roof);
+    this.box(vx0, vy0, vx1, vy1, z, z + L.h / 4, wall, roof, roofType, 1.25, PAL.gold);
     if (L.tower) {
       const tx0 = bx - along[0] * (L.l / 2 - 0.08);
       const ty0 = by - along[1] * (L.l / 2 - 0.08);

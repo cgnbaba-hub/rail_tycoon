@@ -46,6 +46,8 @@ export interface TrackNode {
   span: number;
   /** Station id or -1. */
   station: number;
+  /** Owning company id (0 = the player). */
+  owner: number;
 }
 
 export function cloneNode(n: TrackNode): TrackNode {

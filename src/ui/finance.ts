@@ -4,7 +4,10 @@ import { CAPITAL_CATEGORIES, EXPENSE_LABELS, FINANCING_LABELS, NON_OPERATING, ty
 import { blockSize, issueBlocked } from '../sim/finance';
 import type { Game, YearEndReport } from '../sim/game';
 import { dayToDate, formatDate } from '../sim/time';
+import { PALETTE } from '../render/palette';
+import { boardVote } from '../sim/rivals';
 import { esc, fmtInt } from './dom';
+import { holderColor, holderName } from './rivals';
 import { fmtMoney } from './tools';
 import { confirmModal, type TrainUiHost } from './trains';
 
@@ -93,27 +96,31 @@ export function priceChart(points: PricePoint[], w = 320, h = 120, label: (v: nu
     <div class="chart-axis"><span>${label(hi)}</span><span>${label(lo)}</span></div></div>`;
 }
 
-/** Ownership pie as SVG arcs. */
-export function ownershipPie(c: Company): string {
-  const slices = [
-    { label: 'You', value: c.holding(PLAYER), cls: 'you' },
-    { label: 'Public', value: c.holding('public'), cls: 'public' },
-  ].filter((s) => s.value > 0);
+/** Ownership pie as SVG arcs: you, the rival barons and the public. */
+export function ownershipPie(c: Company, game?: Game): string {
+  const keys = [...c.holders.keys()].filter((k) => c.holding(k) > 0);
+  const order = (k: string) => (k === PLAYER ? 0 : k === 'public' ? 2 : 1);
+  keys.sort((a, b) => order(a) - order(b) || c.holding(b) - c.holding(a));
+  const slices = keys.map((k) => ({
+    label: game ? holderName(game, k) : k === PLAYER ? 'You' : k === 'public' ? 'Public' : k,
+    value: c.holding(k),
+    color: game ? holderColor(game, k) : k === PLAYER ? PALETTE.gold : PALETTE.steel,
+  }));
   const total = slices.reduce((a, s) => a + s.value, 0) || 1;
   let a0 = -Math.PI / 2;
   const r = 30;
   const paths = slices
     .map((s) => {
       const frac = s.value / total;
-      if (frac >= 0.9999) return `<circle class="${s.cls}" cx="32" cy="32" r="${r}"/>`;
+      if (frac >= 0.9999) return `<circle fill="${s.color}" cx="32" cy="32" r="${r}"/>`;
       const a1 = a0 + frac * Math.PI * 2;
       const p = (a: number) => `${(32 + r * Math.cos(a)).toFixed(2)},${(32 + r * Math.sin(a)).toFixed(2)}`;
       const d = `M32,32 L${p(a0)} A${r},${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${p(a1)} Z`;
       a0 = a1;
-      return `<path class="${s.cls}" d="${d}"/>`;
+      return `<path fill="${s.color}" d="${d}"/>`;
     })
     .join('');
-  const legend = slices.map((s) => `<li><i class="sw ${s.cls}"></i>${esc(s.label)} <b>${((s.value / total) * 100).toFixed(1)}%</b> <small>${fmtInt(s.value)}</small></li>`).join('');
+  const legend = slices.map((s) => `<li><i class="sw" style="background:${s.color}"></i>${esc(s.label)} <b>${((s.value / total) * 100).toFixed(1)}%</b> <small>${fmtInt(s.value)}</small></li>`).join('');
   return `<div class="pie"><svg viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Ownership">${paths}</svg><ul>${legend}</ul></div>`;
 }
 
@@ -263,9 +270,10 @@ function stockHtml(game: Game, range: 'daily' | 'weekly'): string {
     </div>
     <div>
       <div class="section">Ownership · ${fmtInt(c.shares)} shares</div>
-      ${ownershipPie(c)}
+      ${ownershipPie(c, game)}
       ${row('Market value', money(s.price * c.shares))}
       ${row('Fair value / share', fmtPrice(f.perShare))}
+      ${boardRow(game, c)}
       <div class="section">Dividend</div>
       <div class="kv"><span>Per share / year</span><b><button class="btn small" data-div="-1" aria-label="Lower dividend">−</button> ${fmtPrice(c.dividendPerShare)} <button class="btn small" data-div="1" aria-label="Raise dividend">+</button></b></div>
       ${row('Yield · cost per year', `${yieldPct.toFixed(1)}% · ${money(c.dividendPerShare * c.shares)}`)}
@@ -279,19 +287,36 @@ function stockHtml(game: Game, range: 'daily' | 'weekly'): string {
   </div>`;
 }
 
+/** The company the portfolio tab trades. */
+function tradeTarget(game: Game): Company {
+  const t = game.companyById(state.target);
+  if (t && !t.defunct) return t;
+  return game.activeCompanies.find((x) => x.id === 0) ?? game.activeCompanies[0] ?? game.company;
+}
+
+function boardRow(game: Game, c: Company): string {
+  if (c.id !== game.company.id || game.over) return '';
+  const v = boardVote(game, c);
+  return row('Board support today', `<span class="${v.support < 0.5 ? 'bad' : v.warn ? 'warn' : 'good'}">${Math.round(v.support * 100)}%</span>${v.strikes ? ' <small class="bad">1 strike</small>' : ''}`);
+}
+
 function portfolioHtml(game: Game, amount: number): string {
   const ch = game.chairman;
   const acc = account(ch, game.companies);
-  const c = game.company;
+  const c = tradeTarget(game);
+  const picker =
+    game.activeCompanies.length > 1
+      ? `<span class="seg">${game.activeCompanies.map((x) => `<button class="btn small" data-target="${x.id}" aria-pressed="${x.id === c.id}">${esc(x.ticker)}</button>`).join('')}</span>`
+      : '';
   const liq = liquidationPrice(ch, game.companies, c);
   const M = FINANCE.margin;
   const ratio = Number.isFinite(acc.ratio) ? acc.ratio : 1;
   const bar = Math.max(0, Math.min(100, ratio * 100));
-  const rows = game.companies
+  const rows = game.activeCompanies
     .map((co) => {
       const long = co.holding(PLAYER);
       const short = ch.short(co.id);
-      return `<tr><td>${esc(co.ticker)}</td><td>${esc(co.name)}</td><td>${fmtPrice(co.stock.price)}</td><td>${fmtInt(long)}</td><td>${money(long * co.stock.price)}</td><td>${short ? fmtInt(short) : '—'}</td><td>${((long / co.shares) * 100).toFixed(1)}%</td></tr>`;
+      return `<tr><td><i class="sw" style="background:${holderColor(game, co.chairman)}"></i>${esc(co.ticker)}</td><td>${esc(co.name)}</td><td>${fmtPrice(co.stock.price)}</td><td>${fmtInt(long)}</td><td>${money(long * co.stock.price)}</td><td>${short ? fmtInt(short) : '—'}</td><td>${((long / co.shares) * 100).toFixed(1)}%</td></tr>`;
     })
     .join('');
   const max = game.maxBuyShares(c.id);
@@ -314,6 +339,7 @@ function portfolioHtml(game: Game, amount: number): string {
     </div>
     <div>
       <div class="section">Trade ${esc(c.ticker)} at ${fmtPrice(c.stock.price)}</div>
+      ${picker}
       <div class="trade">
         <input type="number" id="trade-n" min="0" step="${FINANCE.shares.roundLot}" value="${amount}" aria-label="Number of shares">
         <span class="seg"><button class="btn small" data-n="1000">1,000</button><button class="btn small" data-n="5000">5,000</button><button class="btn small" data-n="${max}">Max ${fmtInt(max)}</button></span>
@@ -348,12 +374,15 @@ interface FinanceState {
   tab: FinanceTab;
   range: 'daily' | 'weekly';
   amount: number;
+  /** Company traded in the portfolio tab. */
+  target: number;
 }
 
-const state: FinanceState = { tab: 'books', range: 'daily', amount: 1000 };
+const state: FinanceState = { tab: 'books', range: 'daily', amount: 1000, target: 0 };
 
-export function openFinance(host: TrainUiHost, tab?: FinanceTab): void {
+export function openFinance(host: TrainUiHost, tab?: FinanceTab, target?: number): void {
   if (tab) state.tab = tab;
+  if (target !== undefined) state.target = target;
   const game = host.game;
   const c = game.company;
   const body =
@@ -424,12 +453,17 @@ export function openFinance(host: TrainUiHost, tab?: FinanceTab): void {
     done(r.ok, r.ok ? 'Stock split 2-for-1' : r.error ?? 'Cannot split.', 'info');
   });
 
+  on('[data-target]', (b) => {
+    state.target = Number(b.dataset.target);
+    reopen();
+  });
+  const tc = tradeTarget(game);
   const input = m.querySelector<HTMLInputElement>('#trade-n');
   const readAmount = () => Math.max(0, Math.floor(Number(input?.value) || 0));
   input?.addEventListener('input', () => {
     state.amount = readAmount();
     const v = m.querySelector('#trade-value');
-    if (v) v.innerHTML = money(state.amount * c.stock.price);
+    if (v) v.innerHTML = money(state.amount * tc.stock.price);
   });
   on('[data-n]', (b) => {
     state.amount = Number(b.dataset.n);
@@ -440,15 +474,15 @@ export function openFinance(host: TrainUiHost, tab?: FinanceTab): void {
     state.amount = n;
     const kind = b.dataset.trade!;
     const exec = () => {
-      const r = kind === 'buy' ? game.buyStock(c.id, n) : kind === 'sell' ? game.sellStock(c.id, n) : kind === 'short' ? game.shortStock(c.id, n) : game.coverStock(c.id, n);
+      const r = kind === 'buy' ? game.buyStock(tc.id, n) : kind === 'sell' ? game.sellStock(tc.id, n) : kind === 'short' ? game.shortStock(tc.id, n) : game.coverStock(tc.id, n);
       const verb = kind === 'buy' ? 'Bought' : kind === 'sell' ? 'Sold' : kind === 'short' ? 'Sold short' : 'Covered';
-      done(r.ok, r.ok ? `${verb} ${fmtInt(r.shares)} ${c.ticker} at ${fmtPrice(r.price)}` : r.error ?? 'Trade failed.');
+      done(r.ok, r.ok ? `${verb} ${fmtInt(r.shares)} ${tc.ticker} at ${fmtPrice(r.price)}` : r.error ?? 'Trade failed.');
     };
-    const cost = n * c.stock.price;
+    const cost = n * tc.stock.price;
     if (kind === 'short') {
-      confirmModal(host, `Sell ${fmtInt(n)} ${c.ticker} short?`, `You borrow the shares and sell them now. If the price rises you lose money — there is no limit — and a margin call may close the position.`, 'Sell short').then((yes) => (yes ? exec() : reopen()));
+      confirmModal(host, `Sell ${fmtInt(n)} ${tc.ticker} short?`, `You borrow the shares and sell them now. If the price rises you lose money — there is no limit — and a margin call may close the position.`, 'Sell short').then((yes) => (yes ? exec() : reopen()));
     } else if (kind === 'buy' && cost > game.chairman.cash) {
-      confirmModal(host, `Buy ${fmtInt(n)} ${c.ticker} on margin?`, `This borrows about ${fmtMoney(Math.round(cost - Math.max(0, game.chairman.cash)))} against your shares at ${((FINANCE.bonds.baseRate[game.economy.cycle.state] + FINANCE.margin.interestSpread) * 100).toFixed(1)}% a year. If the price falls far enough, a margin call sells your shares.`, 'Buy on margin').then((yes) => (yes ? exec() : reopen()));
+      confirmModal(host, `Buy ${fmtInt(n)} ${tc.ticker} on margin?`, `This borrows about ${fmtMoney(Math.round(cost - Math.max(0, game.chairman.cash)))} against your shares at ${((FINANCE.bonds.baseRate[game.economy.cycle.state] + FINANCE.margin.interestSpread) * 100).toFixed(1)}% a year. If the price falls far enough, a margin call sells your shares.`, 'Buy on margin').then((yes) => (yes ? exec() : reopen()));
     } else exec();
   });
 }
@@ -482,6 +516,7 @@ export function openYearEnd(host: TrainUiHost, r: YearEndReport, onClose: () => 
         ${row('Your net worth', `${fmtMoney(Math.round(r.worthStart))} → ${fmtMoney(Math.round(r.worthEnd))}`)}
         ${row('Change', `<span class="${tone(r.worthEnd - r.worthStart)}">${money(r.worthEnd - r.worthStart)}</span>`, 'total')}
         <p class="hint">${y.netProfit > 0 ? 'Profitable year.' : 'The company lost money this year.'} ${priceCh > 0.1 ? 'Shareholders are pleased.' : priceCh < -0.1 ? 'Shareholders are worried.' : ''}</p>
+        ${boardHtml(r)}
       </div>
     </div>
     <label class="check"><input type="checkbox" id="ye-show" ${show ? 'checked' : ''}> Show this report every year</label>
@@ -494,6 +529,14 @@ export function openYearEnd(host: TrainUiHost, r: YearEndReport, onClose: () => 
     onClose();
   });
   m.querySelector<HTMLElement>('[data-a="books"]')!.addEventListener('click', () => openFinance(host, 'books'));
+}
+
+function boardHtml(r: YearEndReport): string {
+  const b = r.board;
+  if (!b?.held) return '';
+  const pctS = `${Math.round(b.support * 100)}%`;
+  const verdict = b.support >= 0.5 ? `<span class="good">Confidence: ${pctS}</span>` : b.strikes >= 2 ? `<span class="bad">Voted out: ${pctS}</span>` : `<span class="bad">No confidence: ${pctS}</span>`;
+  return `${row('Shareholder vote on you', verdict)}${b.support < 0.5 && b.strikes < 2 ? '<p class="warnbox">Lose next year\'s vote too and you are out. Raise the share price, make a profit, and keep a big stake yourself.</p>' : b.warn && b.support >= 0.5 ? '<p class="hint">A narrow win — the shareholders are getting restless.</p>' : ''}`;
 }
 
 export function yearEndEnabled(): boolean {

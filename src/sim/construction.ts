@@ -102,10 +102,12 @@ export interface TrackOptions {
   tunnels: boolean;
   demolish: boolean;
   year: number;
+  /** Company building the track (0 = the player); other companies' track is off limits. */
+  owner?: number;
 }
 
-export function defaultTrackOptions(year: number): TrackOptions {
-  return { double: false, bridge: 'auto', tunnels: true, demolish: true, year };
+export function defaultTrackOptions(year: number, owner = 0): TrackOptions {
+  return { double: false, bridge: 'auto', tunnels: true, demolish: true, year, owner };
 }
 
 /**
@@ -115,7 +117,7 @@ export function defaultTrackOptions(year: number): TrackOptions {
 function groundNodeCost(world: World, i: number, opts: TrackOptions, into?: CostBreakdown): number | null {
   if (i < 0) return null;
   const node = world.track.getIdx(i);
-  if (node) return node.kind === NODE_GROUND ? 0 : null;
+  if (node) return node.kind === NODE_GROUND && node.owner === (opts.owner ?? 0) ? 0 : null;
   if (world.terrain[i] === T.Water) return null;
   if (world.flags[i] & F.River) return null;
   const occ = world.occupant[i];
@@ -752,7 +754,7 @@ export class Transaction {
 }
 
 /** Prepare a tile for a ground node (clear trees, demolish a building) and create the node. */
-function ensureGroundNode(world: World, i: number, tx: Transaction): TrackNode {
+function ensureGroundNode(world: World, i: number, tx: Transaction, owner: number): TrackNode {
   const existing = world.track.getIdx(i);
   if (existing) return existing;
   tx.touchTile(i);
@@ -769,7 +771,7 @@ function ensureGroundNode(world: World, i: number, tx: Transaction): TrackNode {
   }
   if (world.terrain[i] === T.Forest) world.terrain[i] = T.Grass;
   world.flags[i] &= ~F.Tree;
-  const node: TrackNode = { z: groundZ(world, i), conn: 0, double: 0, kind: NODE_GROUND, span: -1, station: -1 };
+  const node: TrackNode = { z: groundZ(world, i), conn: 0, double: 0, kind: NODE_GROUND, span: -1, station: -1, owner };
   world.track.nodes.set(i, node);
   world.markDirty(i);
   return node;
@@ -786,7 +788,8 @@ function connectTracked(world: World, a: number, b: number, double: boolean, tx:
 /** Apply a successful plan to the world. Cash is handled by the caller. */
 export function applyTrackPlan(world: World, plan: TrackPlan, opts: TrackOptions, tx: Transaction): void {
   if (!plan.ok) throw new Error('Cannot apply a failed plan');
-  ensureGroundNode(world, plan.from, tx);
+  const owner = opts.owner ?? 0;
+  ensureGroundNode(world, plan.from, tx, owner);
   for (const st of plan.steps) {
     if (st.kind === 'reuse') {
       if (st.upgrade) {
@@ -798,7 +801,7 @@ export function applyTrackPlan(world: World, plan: TrackPlan, opts: TrackOptions
       }
       continue;
     }
-    ensureGroundNode(world, st.to, tx);
+    ensureGroundNode(world, st.to, tx, owner);
     if (st.kind === 'new') {
       connectTracked(world, st.from, st.to, opts.double, tx);
       continue;
@@ -808,7 +811,7 @@ export function applyTrackPlan(world: World, plan: TrackPlan, opts: TrackOptions
     st.interior.forEach((it, j) => {
       tx.touchTile(it);
       const z = st.z0 + ((st.z1 - st.z0) * (j + 1)) / (st.interior.length + 1);
-      world.track.nodes.set(it, { z, conn: 0, double: 0, kind, span: st.kind === 'bridge' ? st.bridge : -1, station: -1 });
+      world.track.nodes.set(it, { z, conn: 0, double: 0, kind, span: st.kind === 'bridge' ? st.bridge : -1, station: -1, owner });
       if (kind === NODE_BRIDGE) world.flags[it] &= ~F.Tree;
       world.markDirty(it);
       connectTracked(world, cur, it, opts.double, tx);
@@ -840,7 +843,7 @@ export interface StationPlan {
 }
 
 /** Validate and price a station centred on (x, y). */
-export function planStation(world: World, x: number, y: number, kind: Station['kind'], axis: 'x' | 'y'): StationPlan {
+export function planStation(world: World, x: number, y: number, kind: Station['kind'], axis: 'x' | 'y', owner = 0): StationPlan {
   const def = stationDef(kind);
   const tiles: number[] = [];
   const offset = Math.floor((def.length - 1) / 2);
@@ -870,11 +873,12 @@ export function planStation(world: World, x: number, y: number, kind: Station['k
   const fail = (error: string): StationPlan => ({ ...base, cost: sumBreakdown(bd), error });
   if (tiles.length !== def.length) return fail('Too close to the map edge.');
   const axMask = axisDirs(axis).reduce((m, d) => m | (1 << d), 0);
-  const opts = defaultTrackOptions(0);
+  const opts = defaultTrackOptions(0, owner);
   let prevZ: number | null = null;
   for (const t of tiles) {
     const n = world.track.getIdx(t);
     if (n) {
+      if (n.owner !== owner) return fail('Another railroad owns this track.');
       if (n.kind !== NODE_GROUND) return fail('Stations cannot sit on bridges or tunnels.');
       if (n.station >= 0) return fail('There is already a station here.');
       if ((n.conn & ~axMask) !== 0) return fail(`Track here must run straight ${axis === 'x' ? 'east–west' : 'north–south'} (press R to rotate).`);
@@ -903,10 +907,10 @@ export function planStation(world: World, x: number, y: number, kind: Station['k
   return { ...base, ok: true, cost: sumBreakdown(bd) };
 }
 
-export function applyStationPlan(world: World, plan: StationPlan, day: number, tx: Transaction): Station {
+export function applyStationPlan(world: World, plan: StationPlan, day: number, tx: Transaction, owner = 0): Station {
   if (!plan.ok) throw new Error('Cannot apply a failed station plan');
   const id = world.stations.length;
-  for (const t of plan.tiles) ensureGroundNode(world, t, tx);
+  for (const t of plan.tiles) ensureGroundNode(world, t, tx, owner);
   for (let k = 1; k < plan.tiles.length; k++) {
     if (!world.track.connected(plan.tiles[k - 1], plan.tiles[k])) connectTracked(world, plan.tiles[k - 1], plan.tiles[k], false, tx);
   }
@@ -924,6 +928,7 @@ export function applyStationPlan(world: World, plan: StationPlan, day: number, t
     side: plan.side,
     cityId: plan.cityId,
     builtDay: day,
+    owner,
   };
   world.stations.push(st);
   return st;
@@ -945,12 +950,12 @@ export interface BulldozePlan {
  * Clicking a station tile removes the station (track remains); clicking track removes the
  * track tile, and whole bridge/tunnel spans it belongs to or touches.
  */
-export function planBulldoze(world: World, targets: number[]): BulldozePlan {
+export function planBulldoze(world: World, targets: number[], owner = 0): BulldozePlan {
   const stations = new Set<number>();
   const tiles = new Set<number>();
   for (const t of targets) {
     const n = world.track.getIdx(t);
-    if (!n) continue;
+    if (!n || n.owner !== owner) continue;
     if (n.station >= 0) {
       stations.add(n.station);
       continue;

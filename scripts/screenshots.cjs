@@ -153,6 +153,37 @@ const OUT = process.argv[2] || 'screenshots';
   await page.mouse.move(600, 500);
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${OUT}/10-whole-map.png` });
+  // 18–21. rivals (M6)
+  await page.evaluate(() => window.ironBaron.camera.rotate(-1));
+  await page.keyboard.press('o');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/18-railroads.png` });
+  const rival = await page.evaluate(() => window.ironBaron.game.companies.find((c) => c.id !== 0 && !c.defunct)?.id ?? -1);
+  if (rival >= 0) {
+    await page.click(`[data-co="${rival}"]`);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${OUT}/19-railroads-rival.png` });
+  }
+  await page.keyboard.press('Escape');
+  const rivalInfo = await page.evaluate(() => {
+    const app = window.ironBaron;
+    const g = app.game;
+    const st = g.world.liveStations().find((s) => s.owner !== 0);
+    if (!st) return 'no rival station';
+    const W = g.world.width;
+    const mid = st.tiles[Math.floor(st.tiles.length / 2)];
+    app.camera.zoomAt(app.canvas.width / 2, app.canvas.height / 2, 2);
+    app.camera.centerOn((mid % W) + 0.5, Math.floor(mid / W) + 0.5);
+    app.pinned = [mid % W, Math.floor(mid / W)];
+    app.invalidatePanel();
+    return `${st.name} (${g.companyById(st.owner).name})`;
+  });
+  console.log('rival station:', rivalInfo);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${OUT}/20-rival-station.png` });
+  await page.evaluate(() => window.ironBaron.game.endGame('board', 'The shareholders voted you out: only 38 % stood by you, for the second year running.'));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/21-game-over.png` });
   console.log(logs.join('\n'));
   await browser.close();
 })();

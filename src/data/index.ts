@@ -15,6 +15,7 @@ import enginesJson from './engines.json';
 import carsJson from './cars.json';
 import economyJson from './economy.json';
 import financeJson from './finance.json';
+import aiJson from './ai.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -405,6 +406,34 @@ export interface FinanceData {
 }
 
 export const FINANCE: FinanceData = financeJson as unknown as FinanceData;
+
+export type PersonalityId = 'builder' | 'expander' | 'speculator';
+export type AiLevel = 'relaxed' | 'normal' | 'ruthless';
+
+export interface PersonalityDef {
+  name: string;
+  desc: string;
+  buildEveryMonths: number;
+  cashReserve: number;
+  maxRatingIndex: number;
+  trainsPerRoute: number;
+  maxTrainsPerRoute: number;
+  routeTiles: [number, number];
+  competition: number;
+  dividendPayout: number;
+  stock: { ownStake: number; buyBelow: number; sellAbove: number; short: boolean; shortAbove: number; raid: boolean; mergeAtStake: number };
+}
+
+export interface AiData {
+  barons: Array<{ name: string; company: string; ticker: string; color: string; personality: PersonalityId }>;
+  personalities: Record<PersonalityId, PersonalityDef>;
+  levels: Record<AiLevel, { name: string; build: number; trade: number }>;
+  merger: { premium: number; minStake: number; cooldownMonths: number; publicBase: number; publicPerPremium: number; badYearBonus: number };
+  board: { graceYears: number; publicBase: number; perPriceChange: number; profitBonus: number; lossPenalty: number; warnBelow: number };
+  bankruptcy: { monthsInsolvent: number };
+}
+
+export const AI: AiData = aiJson as unknown as AiData;
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];

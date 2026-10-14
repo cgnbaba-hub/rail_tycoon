@@ -18,6 +18,7 @@ import {
   type Train,
 } from '../sim/train';
 import { esc, fmtInt } from './dom';
+import { companyTag } from './rivals';
 import { cargoChip, lastDeliveryHtml } from './economy';
 import { fmtMoney } from './tools';
 
@@ -87,9 +88,19 @@ export function trainPanelHtml(game: Game, t: Train): string {
     .join('');
   const profit = t.stats.revenue - t.stats.costs;
   const last = t.stats.lastRevenue - t.stats.lastCosts;
+  const owner = game.companyById(t.owner);
+  const mine = t.owner === game.company.id && !game.over;
+  const actions = mine
+    ? `<button class="btn small" data-act="edit">Edit route & cars</button>
+      <button class="btn small" data-act="follow">Follow</button>
+      <button class="btn small" data-act="dup">Duplicate</button>
+      <button class="btn small" data-act="upgrade" ${best ? '' : 'disabled'} data-tip="${best ? `Replace with ${esc(best.name)}` : 'No better engine on sale'}">Upgrade engine</button>
+      <button class="btn small danger" data-act="sell">Sell</button>`
+    : '<button class="btn small" data-act="follow">Follow</button>';
   return `
     <div class="card-title"><span class="tag">Train</span><span class="grow">${esc(t.name)}</span>
       <button class="icon-btn" data-act="close" aria-label="Deselect" data-tip="Deselect" data-key="Esc">×</button></div>
+    ${t.owner !== game.company.id && owner ? row('Owner', companyTag(owner)) : ''}
     ${row('Engine', esc(e.name))}
     ${row('Status', `<span class="${t.state === 'noroute' || t.state === 'broken' ? 'bad' : ''}">${esc(STATE_LABEL[t.state])}</span>`)}
     <p class="hint" style="margin:0.1em 0 0.3em">${trainStatus(game, t)}</p>
@@ -105,13 +116,7 @@ export function trainPanelHtml(game: Game, t: Train): string {
     ${row('Engine age', `${years(age)} of ~${e.lifespan} yr`)}
     ${row('Reliability', `${Math.round(e.reliability * 100)}% · ${t.stats.breakdowns} breakdown${t.stats.breakdowns === 1 ? '' : 's'}`)}
     ${row('Resale value', fmtMoney(resaleValue(t, game.tick)))}
-    <div class="actions wrap">
-      <button class="btn small" data-act="edit">Edit route & cars</button>
-      <button class="btn small" data-act="follow">Follow</button>
-      <button class="btn small" data-act="dup">Duplicate</button>
-      <button class="btn small" data-act="upgrade" ${best ? '' : 'disabled'} data-tip="${best ? `Replace with ${esc(best.name)}` : 'No better engine on sale'}">Upgrade engine</button>
-      <button class="btn small danger" data-act="sell">Sell</button>
-    </div>`;
+    <div class="actions wrap">${actions}</div>`;
 }
 
 export function bindTrainPanel(root: HTMLElement, host: TrainUiHost & { follow(id: number): void }, t: Train): void {
@@ -216,7 +221,7 @@ export function stationEconomyHtml(game: Game, st: Station): string {
     <div class="section">Delivered here this year · ${fmtMoney(sc.revenue)}</div>
     ${delivered || '<p class="hint">Nothing yet.</p>'}
     ${row('Platforms in use', `${game.trains.signals.platformCount(st.id)} / ${stationPlatforms(st)}`)}
-    <div class="actions"><button class="btn small" data-act="newtrain" data-station="${st.id}">New train from here</button></div>`;
+    ${st.owner === game.company.id && !game.over ? `<div class="actions"><button class="btn small" data-act="newtrain" data-station="${st.id}">New train from here</button></div>` : ''}`;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -254,7 +259,15 @@ function estimateHtml(est: TrainEstimate, game: Game): string {
 export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStations?: number[]): void {
   const game = host.game;
   const existing = trainId !== undefined ? game.trains.byId(trainId) : undefined;
-  const stations = game.world.liveStations().sort((a, b) => a.name.localeCompare(b.name));
+  if (game.over) {
+    host.toast('You no longer run a railroad.', 'error');
+    return;
+  }
+  if (existing && existing.owner !== game.company.id) return;
+  const stations = game.world
+    .liveStations()
+    .filter((s) => s.owner === game.company.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
   if (stations.length < 2) {
     host.toast('Build at least two connected stations first.', 'error');
     return;
@@ -460,7 +473,7 @@ export function openFleet(host: TrainUiHost & { follow(id: number): void }): voi
     }
   };
   const render = () => {
-    const rows = [...game.trains.trains].sort((a, b) => {
+    const rows = game.trains.trains.filter((t) => t.owner === game.company.id).sort((a, b) => {
       const va = value(a, sort);
       const vb = value(b, sort);
       const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));

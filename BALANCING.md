@@ -234,3 +234,45 @@ from $60.
 Reference (`npx vite-node scripts/finance.ts -- 42`): two trains between two cities,
 $100k bond, $0.50 dividend: share price $10 → ≈ $19 after the first year, ≈ −20 % in the
 following recession; the chairman's net worth $300k → ≈ $500k.
+
+## Rivals, mergers, board (`ai.json`, M6)
+
+**Barons:** Vandermere Central (cautious builder), Hartwell Pacific (aggressive expander),
+Fenwick & Erie (stock speculator); each founded like your company (100,000 shares, the baron
+holds 20 %, $100k personal cash).
+
+| Personality | Build every | Reserve | Credit limit | Trains/route (max) | Line length | Competition | Payout | Own stake | Buy < fair | Sell > fair | Short | Raid | Merge at |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Builder | 4 mo | $150k | A | 2 (4) | 10–28 tiles | ×0.5 per rival station | 35 % | 30 % | 0.8 | 1.35 | no | no | 60 % |
+| Expander | 2 mo | $60k | B | 3 (5) | 8–36 | ×1.0 | 0 | 35 % | 0.85 | 1.5 | no | yes | 42 % |
+| Speculator | 6 mo | $100k | BBB | 2 (3) | 10–24 | ×0.8 | 15 % | 22 % | 0.9 | 1.15 | > 1.3 × fair | yes | 45 % |
+
+Skill levels multiply build frequency / trade size: relaxed 0.6 / 0.5, normal 1 / 1,
+ruthless 1.4 / 1.6.
+
+**Line choice:** score = √(popA · popB) · min(d, 24)/24 · competition^(rival stations in
+town); extensions from own stations × 1.1. A line is built only if
+`12 · Σ townSupply · (people A + people B) · fare(d)` exceeds running costs
+(`$11k · trains + 1.3 · d · track upkeep · 1.6 + $6k`) by 10 % of the capital
+(`d · $9k + $120k`). Stations go where they cover the most people per dollar
+(≈ $40 per covered person), terminals in towns > 6,000.
+
+**Raids:** a raider buys up to 6 % (× skill) of a smaller railroad a month until it reaches
+its merge stake, then calls a vote.
+
+**Merger vote:** offer = target price × 1.15 in acquirer shares. Public yes share =
+0.10 + 0.15 · 1.5 = 32.5 % (+25 % if the target's price fell this year, capped at 90 %).
+Needs > 50 % of all target shares. Failed vote → 12-month cooldown for that bidder.
+
+**Board vote** (from year 3): support = your stake + public stake · mood (+ friendly barons
+· mood), mood = `0.55 + 0.8 · price change over the year + 0.1 (profit) / − 0.2 (loss)`,
+clamped 5–95 %. < 50 % is a strike; two in a row = removed. Warning below 60 %.
+
+**Bankruptcy:** book value < 0 and cash < 0 at month end → no emergency bonds; after
+2 such month-ends the company is bankrupt.
+
+Reference (`npx vite-node scripts/rivals.ts -- 42 4 normal`, 128 map, 3 rivals, the
+player runs one line): after 4 years the expander leads (≈ $120k/yr profit, 7 trains), the
+builder breaks even on 5 stations, the speculator loses money on its railway; rivals
+hold 5–6 % of the player's company. Simulating 4 years takes < 2 s.
+

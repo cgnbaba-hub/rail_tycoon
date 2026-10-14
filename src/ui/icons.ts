@@ -18,6 +18,7 @@ const ICONS: Record<string, string[]> = {
   undo: ['..X......', '.XX......', 'XXXXXXX..', '.XX....X.', '..X.....X', '........X', '.......X.', '..XXXXX..', '.........'],
   train: ['.........', 'X..XXXXX.', 'XX.X...X.', 'XXXX...X.', 'XXXXXXXXX', 'XXXXXXXXX', '.X.X.X.X.', '.........', '.........'],
   finance: ['....X....', '..XXXXX..', '.X..X....', '.X..X....', '..XXXX...', '....X.X..', '....X.X..', '.XXXXX...', '....X....'],
+  rivals: ['..XXXXX..', '..XXXXX..', '..XXXXX..', '..X...X..', '..XXXXX..', 'XXXXXXXXX', '.........', '.X.X.X.X.', 'XXXXXXXXX'],
   center: ['....X....', '....X....', '..XXXXX..', '..X...X..', 'XXX.X.XXX', '..X...X..', '..XXXXX..', '....X....', '....X....'],
 };
 

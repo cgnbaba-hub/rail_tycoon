@@ -1,5 +1,7 @@
-import { CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type EconomicModel } from '../data';
-import { Chairman, PLAYER, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
+import { AI, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
+import { AIBaron } from './ai';
+import { boardVote, checkSolvency, type BoardVote } from './rivals';
+import { Chairman, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
 import { Company, type ExpenseCategory, type YearRecord } from './company';
 import {
   balanceSheet,
@@ -66,7 +68,15 @@ export type GameEvent =
   | { type: 'finance'; company: number; text: string; tone: number }
   | { type: 'marginCall'; call: MarginCall }
   | { type: 'yearEnd'; report: YearEndReport }
+  | { type: 'rival'; company: number; text: string; tone: number }
+  | { type: 'gameOver'; over: GameOver }
   | TrainEvent;
+
+export interface GameOver {
+  reason: 'takeover' | 'bankrupt' | 'board';
+  text: string;
+  day: number;
+}
 
 export interface YearEndReport {
   year: number;
@@ -75,6 +85,8 @@ export interface YearEndReport {
   priceStart: number;
   worthStart: number;
   worthEnd: number;
+  /** The shareholders' vote on the chairman, when one was held. */
+  board?: BoardVote;
 }
 
 export interface UndoEntry {
@@ -87,6 +99,9 @@ export interface UndoEntry {
   writeOff?: number;
 }
 
+/** One end of a line: an existing station, or where to put a new one. */
+export type LineEnd = { station: number } | { x: number; y: number; axis: 'x' | 'y'; kind: Station['kind'] };
+
 export interface CommandResult {
   ok: boolean;
   error?: string;
@@ -96,6 +111,11 @@ export interface CommandResult {
 export interface GameSettings {
   wrecks: boolean;
   model: EconomicModel;
+  /** Number of AI rivals (0–3). */
+  rivals: number;
+  aiLevel: AiLevel;
+  /** Friendly rivals never short, raid or vote against you. */
+  friendlyAi: boolean;
 }
 
 /** Map a cost breakdown onto ledger categories. */
@@ -129,9 +149,13 @@ export class Game {
   readonly params: MapParams;
   readonly world: World;
   readonly rng: Rng;
-  /** All railroad companies; index 0 is the player's. */
+  /** All railroad companies ever founded; index 0 is the player's (some may be defunct). */
   readonly companies: Company[];
-  readonly chairman: Chairman;
+  /** Everyone with a personal account: index 0 is you, then the rival barons. */
+  readonly investors: Chairman[];
+  readonly ai: AIBaron[] = [];
+  /** Set when you have lost your railroad. */
+  over: GameOver | null = null;
   readonly economy: Economy;
   readonly trains: TrainSystem;
   readonly settings: GameSettings;
@@ -148,18 +172,29 @@ export class Game {
     this.rng = new Rng((params.seed ^ 0xa5a5a5a5) >>> 0);
     this.companies = [Company.found(0, this.rng.pick(COMPANY.names))];
     const S = FINANCE.shares;
-    this.chairman = new Chairman('You', S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice);
-    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, ...settings };
+    const fortune = S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice;
+    this.investors = [new Chairman('You', fortune)];
+    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, ...settings };
+    const rivals = Math.max(0, Math.min(AI.barons.length, this.settings.rivals));
+    for (let k = 0; k < rivals; k++) {
+      const b = AI.barons[k];
+      const key = `ai:${k + 1}`;
+      const c = Company.found(k + 1, b.company, key, b.color, b.ticker);
+      this.companies.push(c);
+      const baron = new Chairman(b.name, fortune, key);
+      this.investors.push(baron);
+      this.ai.push(new AIBaron(baron, c.id, b.personality, this.rng.fork(20 + k), k));
+    }
     this.economy = new Economy(this.world, this.settings.model, this.rng.fork(11));
     this.growthRng = this.rng.fork(12);
     this.marketRng = this.rng.fork(13);
-    this.chairman.yearStartWorth = this.netWorth();
+    for (const inv of this.investors) inv.yearStartWorth = this.netWorth(inv);
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
     this.trains = new TrainSystem({
       world: this.world,
       economy: this.economy,
-      company: this.company,
+      companyOf: (id: number) => this.companyById(id) ?? this.company,
       rng: this.rng,
       settings: this.settings,
       get tick() {
@@ -175,6 +210,28 @@ export class Game {
   /** The player's company. */
   get company(): Company {
     return this.companies[0];
+  }
+
+  /** The player's personal account. */
+  get chairman(): Chairman {
+    return this.investors[0];
+  }
+
+  /** Companies still in business. */
+  get activeCompanies(): Company[] {
+    return this.companies.filter((c) => !c.defunct);
+  }
+
+  investorByKey(key: string): Chairman | undefined {
+    return this.investors.find((i) => i.key === key);
+  }
+
+  /** End the game for the player (you keep watching as an investor). */
+  endGame(reason: GameOver['reason'], text: string): void {
+    if (this.over) return;
+    this.over = { reason, text, day: this.day };
+    this.undoStack.length = 0;
+    this.emit({ type: 'gameOver', over: this.over });
   }
 
   get day(): number {
@@ -196,7 +253,7 @@ export class Game {
     };
   }
 
-  private emit(e: GameEvent): void {
+  emit(e: GameEvent): void {
     for (const l of this.listeners) l(e);
   }
 
@@ -215,6 +272,7 @@ export class Game {
         this.monthly(date);
         this.trains.monthly();
         this.chargeTrackMaintenance();
+        for (const ai of this.ai) ai.monthly(this);
         this.emit({ type: 'month', date });
         if (date.month === 0) {
           this.financeYearly();
@@ -231,11 +289,13 @@ export class Game {
     const newsBefore = this.economy.cycle.news.length;
     const stateBefore = this.economy.cycle.state;
     const income = this.economy.monthly(this.day);
-    const total = income.reduce((a, i) => a + i.amount, 0);
-    if (income.length) {
-      this.company.earnOther(this.year, 'industries', total);
-      this.emit({ type: 'industryIncome', amount: total });
+    let mine = 0;
+    for (const inc of income) {
+      const owner = this.activeCompanies.find((c) => c.industryCost.has(inc.industry)) ?? this.company;
+      owner.earnOther(this.year, 'industries', inc.amount);
+      if (owner === this.company) mine += inc.amount;
     }
+    if (mine !== 0 && !this.company.defunct) this.emit({ type: 'industryIncome', amount: mine });
     const blocked = new Set(this.undoStack.flatMap((e) => e.tx.touchedTiles));
     const reports = monthlyCityGrowth(this.world, this.economy, this.growthRng, this.year, blocked);
     this.economy.resetMonth();
@@ -253,86 +313,163 @@ export class Game {
   /** Monthly upkeep of every track tile and station. */
   private chargeTrackMaintenance(): void {
     const tm = ECONOMY.trackMaintenance;
-    let total = 0;
+    const total = new Map<number, number>();
+    const upkeep = new Map<number, number>();
+    const add = (m: Map<number, number>, k: number, v: number) => m.set(k, (m.get(k) ?? 0) + v);
     for (const n of this.world.track.nodes.values()) {
       let f = 1;
       if (n.double) f *= tm.doubleFactor;
       if (n.kind === NODE_BRIDGE) f *= tm.bridgeFactor;
       if (n.kind === NODE_TUNNEL) f *= tm.tunnelFactor;
-      total += (tm.perTileYear * f) / 12;
+      add(total, n.owner, (tm.perTileYear * f) / 12);
     }
-    let upkeep = 0;
     for (const st of this.world.liveStations()) {
-      total += (tm.stationPerYear[st.kind] ?? 0) / 12;
-      for (const id of st.improvements ?? []) upkeep += (IMPROVEMENT_BY_ID.get(id)?.upkeep ?? 0) / 12;
+      add(total, st.owner, (tm.stationPerYear[st.kind] ?? 0) / 12);
+      for (const id of st.improvements ?? []) add(upkeep, st.owner, (IMPROVEMENT_BY_ID.get(id)?.upkeep ?? 0) / 12);
     }
-    if (total > 0) this.company.spend(this.year, 'trackMaintenance', total);
-    if (upkeep > 0) this.company.spend(this.year, 'improvementUpkeep', upkeep);
+    for (const [owner, v] of total) if (v > 0) this.companyById(owner)?.spend(this.year, 'trackMaintenance', v);
+    for (const [owner, v] of upkeep) if (v > 0) this.companyById(owner)?.spend(this.year, 'improvementUpkeep', v);
   }
 
   // -------------------------------------------------------------------------------------
   // Construction commands
   // -------------------------------------------------------------------------------------
 
-  planTrack(from: number, to: number, opts: TrackOptions): TrackPlan {
-    return planTrack(this.world, from, to, opts);
+  planTrack(from: number, to: number, opts: TrackOptions, c: Company = this.company): TrackPlan {
+    return planTrack(this.world, from, to, { ...opts, owner: c.id });
   }
 
-  planStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y'): StationPlan {
-    return planStation(this.world, x, y, kind, axis);
+  planStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y', c: Company = this.company): StationPlan {
+    return planStation(this.world, x, y, kind, axis, c.id);
   }
 
-  private commit(label: string, tx: Transaction, split: Array<[ExpenseCategory, number]>): void {
+  /** Why company c can't act right now (game over for the player, or a defunct company). */
+  refuse(c: Company): string | null {
+    if (c.defunct) return `${c.name} no longer exists.`;
+    if (c.id === 0 && this.over) return 'You no longer run a railroad.';
+    return null;
+  }
+
+  private commit(label: string, tx: Transaction, split: Array<[ExpenseCategory, number]>, c: Company = this.company): void {
     const year = this.year;
-    for (const [cat, amount] of split) this.company.spend(year, cat, amount);
-    this.undoStack.push({ label, day: this.day, spent: split, tx });
-    while (this.undoStack.length > CONSTRUCTION.undo.maxActions) this.undoStack.shift();
-    this.emit({ type: 'built', label, cost: split.reduce((a, [, v]) => a + v, 0) });
+    for (const [cat, amount] of split) c.spend(year, cat, amount);
+    if (c.id === 0) {
+      this.undoStack.push({ label, day: this.day, spent: split, tx });
+      while (this.undoStack.length > CONSTRUCTION.undo.maxActions) this.undoStack.shift();
+      this.emit({ type: 'built', label, cost: split.reduce((a, [, v]) => a + v, 0) });
+    } else {
+      // A rival built on tiles a pending undo would restore: those undos are no longer safe.
+      const touched = new Set(tx.touchedTiles);
+      if (this.undoStack.some((e) => e.tx.touchedTiles.some((t) => touched.has(t)))) this.undoStack.length = 0;
+    }
   }
 
   /**
    * Build track between two tiles. A plan computed earlier (e.g. the UI preview) is reused
    * when the world hasn't changed since; otherwise the route is planned again.
    */
-  buildTrack(from: number, to: number, opts: TrackOptions, prePlanned?: TrackPlan): CommandResult & { plan: TrackPlan } {
+  buildTrack(from: number, to: number, opts: TrackOptions, prePlanned?: TrackPlan, c: Company = this.company): CommandResult & { plan: TrackPlan } {
+    const o = { ...opts, owner: c.id };
     const fresh = prePlanned && prePlanned.ok && prePlanned.from === from && prePlanned.to === to && prePlanned.version === this.world.editVersion;
-    const plan = fresh ? prePlanned : this.planTrack(from, to, opts);
+    const plan = fresh ? prePlanned : this.planTrack(from, to, o, c);
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0, plan };
     if (!plan.ok) return { ok: false, error: plan.error, cost: 0, plan };
     if (plan.newTiles === 0 && plan.cost === 0) return { ok: false, error: 'That track already exists.', cost: 0, plan };
-    if (!this.company.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost, plan };
+    if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost, plan };
     const tx = new Transaction(this.world);
-    applyTrackPlan(this.world, plan, opts, tx);
+    applyTrackPlan(this.world, plan, o, tx);
     const tiles = Math.round(plan.lengthTiles);
-    this.commit(`Track (${tiles} tile${tiles === 1 ? '' : 's'})`, tx, ledgerSplit(plan.breakdown));
+    this.commit(`Track (${tiles} tile${tiles === 1 ? '' : 's'})`, tx, ledgerSplit(plan.breakdown), c);
     return { ok: true, cost: plan.cost, plan };
   }
 
-  buildStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y'): CommandResult & { plan: StationPlan; station?: Station } {
-    const plan = this.planStation(x, y, kind, axis);
+  buildStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y', c: Company = this.company): CommandResult & { plan: StationPlan; station?: Station } {
+    const plan = this.planStation(x, y, kind, axis, c);
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0, plan };
     if (!plan.ok) return { ok: false, error: plan.error, cost: 0, plan };
-    if (!this.company.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost, plan };
+    if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost, plan };
     const tx = new Transaction(this.world);
-    const station = applyStationPlan(this.world, plan, this.day, tx);
-    this.commit(`${plan.name} ${kind}`, tx, ledgerSplit(plan.breakdown));
+    const station = applyStationPlan(this.world, plan, this.day, tx, c.id);
+    this.commit(`${plan.name} ${kind}`, tx, ledgerSplit(plan.breakdown), c);
     return { ok: true, cost: plan.cost, plan, station };
   }
 
-  bulldoze(tiles: number[]): CommandResult {
-    const plan = planBulldoze(this.world, tiles);
-    if (plan.tiles.length === 0 && plan.stations.length === 0) return { ok: false, error: 'Nothing to remove here.', cost: 0 };
+  bulldoze(tiles: number[], c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    const plan = planBulldoze(this.world, tiles, c.id);
+    if (plan.tiles.length === 0 && plan.stations.length === 0) {
+      const other = tiles.map((t) => this.world.track.getIdx(t)).find((n) => n && n.owner !== c.id);
+      return { ok: false, error: other ? `That belongs to ${this.companyById(other.owner)?.name ?? 'another railroad'}.` : 'Nothing to remove here.', cost: 0 };
+    }
     const busy = this.trains.occupiedTiles();
     const stationTiles = plan.stations.flatMap((id) => this.world.stations[id]?.tiles ?? []);
     if ([...plan.tiles, ...stationTiles].some((t) => busy.has(t))) return { ok: false, error: 'A train is using that track.', cost: 0 };
-    if (!this.company.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost };
+    if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost };
     const value = this.replacementValue(plan.tiles, plan.stations);
     const tx = new Transaction(this.world);
     applyBulldoze(this.world, plan, tx);
     const what = plan.stations.length ? `${plan.stations.length} station${plan.stations.length > 1 ? 's' : ''}` : `${plan.tiles.length} track tile${plan.tiles.length > 1 ? 's' : ''}`;
-    const before = this.company.infrastructure;
-    this.company.writeDown(this.year, 'writeOffs', value);
-    this.commit(`Bulldoze ${what}`, tx, [['bulldozing', plan.cost]]);
-    this.undoStack[this.undoStack.length - 1].writeOff = before - this.company.infrastructure;
+    const before = c.infrastructure;
+    c.writeDown(this.year, 'writeOffs', value);
+    this.commit(`Bulldoze ${what}`, tx, [['bulldozing', plan.cost]], c);
+    if (c.id === 0) this.undoStack[this.undoStack.length - 1].writeOff = before - c.infrastructure;
     return { ok: true, cost: plan.cost };
+  }
+
+  /**
+   * Build a whole line for company c in one go: new stations where needed and track
+   * between the facing ends, all or nothing (rolled back if a step fails or the total
+   * exceeds `maxCost`). Used by the AI; not undoable.
+   */
+  buildLine(c: Company, a: LineEnd, b: LineEnd, opts: TrackOptions, maxCost: number): CommandResult & { stations?: [Station, Station] } {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    const o = { ...opts, owner: c.id };
+    const tx = new Transaction(this.world);
+    const split = new Map<ExpenseCategory, number>();
+    const addSplit = (bd: CostBreakdown) => {
+      for (const [cat, v] of ledgerSplit(bd)) split.set(cat, (split.get(cat) ?? 0) + v);
+    };
+    const fail = (error: string, cost = 0) => {
+      tx.revert();
+      return { ok: false, error, cost };
+    };
+    const ends: Station[] = [];
+    for (const e of [a, b]) {
+      if ('station' in e) {
+        const st = this.world.stations[e.station];
+        if (!st || st.owner !== c.id) return fail('Station is gone.');
+        ends.push(st);
+        continue;
+      }
+      const plan = planStation(this.world, e.x, e.y, e.kind, e.axis, c.id);
+      if (!plan.ok) return fail(plan.error ?? 'Cannot place station.');
+      addSplit(plan.breakdown);
+      ends.push(applyStationPlan(this.world, plan, this.day, tx, c.id));
+    }
+    const [sa, sb] = ends;
+    const nearest = (st: Station, other: Station) => {
+      const W = this.world.width;
+      const ot = other.tiles[Math.floor(other.tiles.length / 2)];
+      const d = (t: number) => Math.hypot((t % W) - (ot % W), Math.floor(t / W) - Math.floor(ot / W));
+      return [st.tiles[0], st.tiles[st.tiles.length - 1]].sort((p, q) => d(p) - d(q))[0];
+    };
+    const from = nearest(sa, sb);
+    const to = nearest(sb, sa);
+    const plan = planTrack(this.world, from, to, o);
+    if (!plan.ok) return fail(plan.error ?? 'No route.');
+    const W = this.world.width;
+    const straight = Math.hypot((from % W) - (to % W), Math.floor(from / W) - Math.floor(to / W));
+    if (plan.lengthTiles > straight * 1.8 + 4) return fail('Too roundabout.');
+    addSplit(plan.breakdown);
+    const total = [...split.values()].reduce((x, y) => x + y, 0);
+    if (total > maxCost || !c.canAfford(total)) return fail('Too expensive.', total);
+    applyTrackPlan(this.world, plan, o, tx);
+    this.commit(`Line ${sa.name}–${sb.name}`, tx, [...split.entries()], c);
+    return { ok: true, cost: total, stations: [sa, sb] };
   }
 
   /** The most recent action that can still be undone, if any. */
@@ -379,8 +516,7 @@ export class Game {
 
   /** Resale value of the company's trains. */
   rollingStockValue(c: Company = this.company): number {
-    if (c.id !== 0) return 0;
-    return this.trains.trains.reduce((a, t) => a + resaleValue(t, this.tick), 0);
+    return this.trains.trains.reduce((a, t) => a + (t.owner === c.id ? resaleValue(t, this.tick) : 0), 0);
   }
 
   balance(c: Company = this.company): BalanceSheet {
@@ -403,9 +539,9 @@ export class Game {
     return bondRate(this.rating(c, FINANCE.bonds.block), this.economy.cycle.state);
   }
 
-  /** The chairman's net worth (cash + shares − shorts). */
-  netWorth(): number {
-    return account(this.chairman, this.companies).equity;
+  /** An investor's net worth (cash + shares − shorts); yours by default. */
+  netWorth(inv: Chairman = this.chairman): number {
+    return account(inv, this.activeCompanies).equity;
   }
 
   /** Replacement value of track tiles and stations (what bulldozing writes off). */
@@ -430,9 +566,12 @@ export class Game {
 
   private marketDaily(): void {
     const ctx = this.marketContext();
-    for (const c of this.companies) stockDaily(c, this.fair(c).perShare, ctx, this.marketRng);
-    const call = enforceMargin(this.chairman, this.companies);
-    if (call && call.sold.length) this.emit({ type: 'marginCall', call });
+    const active = this.activeCompanies;
+    for (const c of active) stockDaily(c, this.fair(c).perShare, ctx, this.marketRng);
+    for (const inv of this.investors) {
+      const call = enforceMargin(inv, active);
+      if (call && call.sold.length && inv === this.chairman) this.emit({ type: 'marginCall', call });
+    }
   }
 
   private financeEvent(c: Company, text: string, tone: number): void {
@@ -443,21 +582,28 @@ export class Game {
   private financeMonthly(date: GameDate): void {
     const closing = dayToDate(this.day - 1, this.params.startYear).year;
     const A = FINANCE.accounting;
-    for (const c of this.companies) {
+    for (const c of this.activeCompanies) {
+      // The chairman's salary is part of the month's costs.
+      const salary = A.chairmanSalaryPerYear / 12;
+      c.spend(closing, 'salary', salary);
+      const boss = this.investorByKey(c.chairman);
+      if (boss) boss.cash += salary;
       c.writeDown(closing, 'depreciation', (c.infrastructure * A.infrastructureDepreciation) / 12);
       closeMonth(c, closing);
       // Dividends come out of the company's own cash, before any emergency borrowing.
       if (FINANCE.dividends.months.includes(date.month)) {
         const r = payDividend(c, this.year, (holder, amount) => {
-          if (holder === PLAYER) this.chairman.cash += amount;
+          const inv = this.investorByKey(holder);
+          if (inv) inv.cash += amount;
         });
-        if (r.perShare > 0) this.chairman.cash -= r.perShare * this.chairman.short(c.id);
+        if (r.perShare > 0) for (const inv of this.investors) inv.cash -= r.perShare * inv.short(c.id);
         if (r.skipped) {
           c.note(this.day, 'Dividend passed (not enough cash)');
           this.financeEvent(c, `${c.name} could not afford its dividend.`, -1);
         }
       }
-      if (c.cash < 0) {
+      // Lenders won't help a company whose debts exceed its assets: that one heads for bankruptcy.
+      if (c.cash < 0 && checkSolvency(this, c)) {
         const blocks = Math.ceil(-c.cash / FINANCE.bonds.block);
         const rate = bondRate(this.rating(c, blocks * FINANCE.bonds.block), this.economy.cycle.state) + FINANCE.bonds.emergencyPenalty;
         for (let i = 0; i < blocks; i++) c.addBond(this.year, this.day, FINANCE.bonds.block, rate, true);
@@ -466,18 +612,17 @@ export class Game {
       }
       c.stock.monthOpen = c.stock.price;
     }
-    const salary = A.chairmanSalaryPerYear / 12;
-    this.company.spend(this.year, 'salary', salary);
-    this.chairman.cash += salary;
-    chargeMarginInterest(this.chairman, baseRate(this.economy.cycle.state));
-    this.chairman.worthHistory.push(Math.round(this.netWorth()));
-    if (this.chairman.worthHistory.length > 240) this.chairman.worthHistory.shift();
+    for (const inv of this.investors) {
+      chargeMarginInterest(inv, baseRate(this.economy.cycle.state));
+      inv.worthHistory.push(Math.round(this.netWorth(inv)));
+      if (inv.worthHistory.length > 240) inv.worthHistory.shift();
+    }
   }
 
   /** Year end: bond maturities, year record, year-end report. */
   private financeYearly(): void {
     const closing = this.year - 1;
-    for (const c of this.companies) {
+    for (const c of this.activeCompanies) {
       for (const b of [...c.bonds]) {
         if (b.maturityYear <= this.year) {
           c.removeBond(this.year, b.id);
@@ -497,16 +642,30 @@ export class Game {
         dividendsPerShare: c.trailingDividend,
       };
       c.history.push(record);
-      if (c.id === 0) {
+      if (c.id === 0 && !this.over) {
         const worth = this.netWorth();
-        this.emit({ type: 'yearEnd', report: { year: closing, company: record, previous: prev, priceStart: c.stock.yearOpen, worthStart: this.chairman.yearStartWorth, worthEnd: worth } });
+        const board = boardVote(this, c);
+        if (board.held) {
+          if (board.support < 0.5) c.boardStrikes++;
+          else c.boardStrikes = 0;
+          board.strikes = c.boardStrikes;
+        }
+        this.emit({ type: 'yearEnd', report: { year: closing, company: record, previous: prev, priceStart: c.stock.yearOpen, worthStart: this.chairman.yearStartWorth, worthEnd: worth, board } });
         this.chairman.yearStartWorth = worth;
+        if (board.held && c.boardStrikes >= 2) {
+          this.endGame('board', `The shareholders of ${c.name} voted you out: only ${Math.round(board.support * 100)}% stood by you, for the second year running.`);
+        } else if (board.held && c.boardStrikes === 1) {
+          this.emit({ type: 'rival', company: 0, text: `The shareholders voted no confidence in you (${Math.round(board.support * 100)}% support). Turn the company around this year or you will be removed.`, tone: -1 });
+        }
       }
       c.stock.yearOpen = c.stock.price;
     }
+    for (const inv of this.investors) if (inv !== this.chairman) inv.yearStartWorth = this.netWorth(inv);
   }
 
   issueBond(c: Company = this.company): CommandResult & { rate?: number } {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
     const block = FINANCE.bonds.block;
     const after = this.rating(c, block);
     if (after.def.id === 'D') return { ok: false, error: 'No lender will buy more bonds at this level of debt.', cost: 0 };
@@ -517,6 +676,8 @@ export class Game {
   }
 
   repayBond(id: number, c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
     const bond = c.bonds.find((b) => b.id === id);
     if (!bond) return { ok: false, error: 'No such bond.', cost: 0 };
     if (!c.canAfford(bond.principal)) return { ok: false, error: 'Not enough cash.', cost: bond.principal };
@@ -526,24 +687,34 @@ export class Game {
   }
 
   issueShares(c: Company = this.company): ShareAction {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, shares: 0, cash: 0, effect: 0 };
     return issueShares(c, this.marketContext());
   }
 
   buybackShares(c: Company = this.company): ShareAction {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, shares: 0, cash: 0, effect: 0 };
     return buybackShares(c, this.marketContext());
   }
 
   splitStock(c: Company = this.company): ShareAction {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, shares: 0, cash: 0, effect: 0 };
     const r = splitStock(c, this.marketContext());
     if (r.ok) {
-      const s = this.chairman.short(c.id);
-      if (s) this.chairman.shorts.set(c.id, s * 2);
+      for (const inv of this.investors) {
+        const s = inv.short(c.id);
+        if (s) inv.shorts.set(c.id, s * 2);
+      }
     }
     return r;
   }
 
   /** Set the annual dividend per share (rounded to the step). */
   setDividend(perShare: number, c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
     const step = FINANCE.dividends.step;
     const v = Math.max(0, Math.round(perShare / step) * step);
     if (Math.abs(v - c.dividendPerShare) < 1e-9) return { ok: true, cost: 0 };
@@ -553,35 +724,35 @@ export class Game {
     return { ok: true, cost: 0 };
   }
 
-  private companyById(id: number): Company | undefined {
+  companyById(id: number): Company | undefined {
     return this.companies.find((c) => c.id === id);
   }
 
   private trade(id: number, fn: (c: Company) => TradeResult): TradeResult {
     const c = this.companyById(id);
-    if (!c) return { ok: false, error: 'No such company.', shares: 0, price: 0, cash: 0 };
+    if (!c || c.defunct) return { ok: false, error: 'No such company.', shares: 0, price: 0, cash: 0 };
     return fn(c);
   }
 
-  buyStock(companyId: number, n: number): TradeResult {
-    return this.trade(companyId, (c) => buyShares(this.chairman, this.companies, c, n));
+  buyStock(companyId: number, n: number, inv: Chairman = this.chairman): TradeResult {
+    return this.trade(companyId, (c) => buyShares(inv, this.activeCompanies, c, n));
   }
 
-  sellStock(companyId: number, n: number): TradeResult {
-    return this.trade(companyId, (c) => sellShares(this.chairman, c, n));
+  sellStock(companyId: number, n: number, inv: Chairman = this.chairman): TradeResult {
+    return this.trade(companyId, (c) => sellShares(inv, c, n));
   }
 
-  shortStock(companyId: number, n: number): TradeResult {
-    return this.trade(companyId, (c) => shortShares(this.chairman, this.companies, c, n));
+  shortStock(companyId: number, n: number, inv: Chairman = this.chairman): TradeResult {
+    return this.trade(companyId, (c) => shortShares(inv, this.activeCompanies, c, n));
   }
 
-  coverStock(companyId: number, n: number): TradeResult {
-    return this.trade(companyId, (c) => coverShort(this.chairman, c, n));
+  coverStock(companyId: number, n: number, inv: Chairman = this.chairman): TradeResult {
+    return this.trade(companyId, (c) => coverShort(inv, c, n));
   }
 
-  maxBuyShares(companyId: number): number {
+  maxBuyShares(companyId: number, inv: Chairman = this.chairman): number {
     const c = this.companyById(companyId);
-    return c ? maxBuy(this.chairman, this.companies, c) : 0;
+    return c && !c.defunct ? maxBuy(inv, this.activeCompanies, c) : 0;
   }
 
   // -------------------------------------------------------------------------------------
@@ -594,6 +765,8 @@ export class Game {
     const def = IMPROVEMENT_BY_ID.get(improvementId);
     if (!st) return 'No such station.';
     if (!def) return 'Unknown improvement.';
+    if (st.owner !== this.company.id) return 'That is a rival\'s station.';
+    if (this.over) return 'You no longer run a railroad.';
     const have = st.improvements ?? [];
     if (have.includes(def.id)) return `${def.name} already built.`;
     if (def.requires && !have.includes(def.requires)) return `Needs a ${IMPROVEMENT_BY_ID.get(def.requires)?.name.toLowerCase() ?? def.requires} first.`;
@@ -624,6 +797,7 @@ export class Game {
     const ind = this.world.industries[industryId];
     if (!ind) return { ok: false, error: 'No such industry.', cost: 0 };
     if (!this.canBuyIndustries()) return { ok: false, error: 'Industries can only be bought in the Expert economy.', cost: 0 };
+    if (this.over) return { ok: false, error: 'You no longer run a railroad.', cost: 0 };
     if (this.economy.owned.has(industryId)) return { ok: false, error: 'You already own it.', cost: 0 };
     const price = this.economy.industryPrice(ind);
     if (!this.company.canAfford(price)) return { ok: false, error: 'Not enough cash.', cost: price };
@@ -636,7 +810,8 @@ export class Game {
 
   sellIndustry(industryId: number): CommandResult {
     const ind = this.world.industries[industryId];
-    if (!ind || !this.economy.owned.has(industryId)) return { ok: false, error: 'You don\'t own that industry.', cost: 0 };
+    if (!ind || !this.economy.owned.has(industryId) || !this.company.industryCost.has(industryId)) return { ok: false, error: 'You don\'t own that industry.', cost: 0 };
+    if (this.over) return { ok: false, error: 'You no longer run a railroad.', cost: 0 };
     const value = Math.round(this.economy.industryPrice(ind) * ECONOMY.ownership.sellFraction);
     this.economy.owned.delete(industryId);
     const cost = this.company.industryCost.get(industryId) ?? value;
@@ -651,39 +826,53 @@ export class Game {
   // Train commands
   // -------------------------------------------------------------------------------------
 
-  private validRoute(route: RouteStop[]): string | null {
+  private validRoute(route: RouteStop[], owner: number): string | null {
     if (route.length < 2) return 'A route needs at least two stops.';
-    for (const r of route) if (!this.world.stations[r.station]) return 'A stop on this route no longer exists.';
+    for (const r of route) {
+      const st = this.world.stations[r.station];
+      if (!st) return 'A stop on this route no longer exists.';
+      if (st.owner !== owner) return `${st.name} belongs to another railroad.`;
+    }
     return null;
   }
 
-  buyTrain(engineId: string, cargos: string[], route: RouteStop[]): CommandResult & { train?: Train } {
+  /** A train the company may give orders to. */
+  private ownTrain(id: number, c: Company): Train | string {
+    const t = this.trains.byId(id);
+    if (!t) return 'No such train.';
+    if (t.owner !== c.id) return 'That train belongs to another railroad.';
+    return this.refuse(c) ?? t;
+  }
+
+  buyTrain(engineId: string, cargos: string[], route: RouteStop[], c: Company = this.company): CommandResult & { train?: Train } {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
     const e = ENGINE_BY_ID.get(engineId);
     if (!e) return { ok: false, error: 'Unknown engine.', cost: 0 };
     if (!enginesAvailable(this.year).includes(e)) return { ok: false, error: `${e.name} is not on sale in ${this.year}.`, cost: 0 };
     if (cargos.length < 1 || cargos.length > e.maxCars) return { ok: false, error: `${e.name} pulls 1–${e.maxCars} cars.`, cost: 0 };
-    const bad = this.validRoute(route);
+    const bad = this.validRoute(route, c.id);
     if (bad) return { ok: false, error: bad, cost: 0 };
     const price = consistPrice(engineId, cargos);
-    if (!this.company.canAfford(price)) return { ok: false, error: 'Not enough cash.', cost: price };
-    this.company.spend(this.year, 'trains', price);
-    const train = this.trains.spawn(engineId, cargos, route);
+    if (!c.canAfford(price)) return { ok: false, error: 'Not enough cash.', cost: price };
+    c.spend(this.year, 'trains', price);
+    const train = this.trains.spawn(engineId, cargos, route, undefined, c.id);
     return { ok: true, cost: price, train };
   }
 
-  sellTrain(id: number): CommandResult {
-    const t = this.trains.byId(id);
-    if (!t) return { ok: false, error: 'No such train.', cost: 0 };
+  sellTrain(id: number, c: Company = this.company): CommandResult {
+    const t = this.ownTrain(id, c);
+    if (typeof t === 'string') return { ok: false, error: t, cost: 0 };
     const value = resaleValue(t, this.tick);
     this.trains.remove(t);
-    this.company.spend(this.year, 'trains', -value);
+    c.spend(this.year, 'trains', -value);
     return { ok: true, cost: -value };
   }
 
-  setRoute(id: number, route: RouteStop[]): CommandResult {
-    const t = this.trains.byId(id);
-    if (!t) return { ok: false, error: 'No such train.', cost: 0 };
-    const bad = this.validRoute(route);
+  setRoute(id: number, route: RouteStop[], c: Company = this.company): CommandResult {
+    const t = this.ownTrain(id, c);
+    if (typeof t === 'string') return { ok: false, error: t, cost: 0 };
+    const bad = this.validRoute(route, c.id);
     if (bad) return { ok: false, error: bad, cost: 0 };
     const current = t.route[t.stop]?.station;
     t.route = route.map((r) => ({ ...r }));
@@ -693,9 +882,9 @@ export class Game {
   }
 
   /** Change the consist: new cars are bought, removed cars sold at half price. */
-  setConsist(id: number, cargos: string[]): CommandResult {
-    const t = this.trains.byId(id);
-    if (!t) return { ok: false, error: 'No such train.', cost: 0 };
+  setConsist(id: number, cargos: string[], c: Company = this.company): CommandResult {
+    const t = this.ownTrain(id, c);
+    if (typeof t === 'string') return { ok: false, error: t, cost: 0 };
     const e = ENGINE_BY_ID.get(t.engine)!;
     if (cargos.length < 1 || cargos.length > e.maxCars) return { ok: false, error: `${e.name} pulls 1–${e.maxCars} cars.`, cost: 0 };
     const oldTypes = t.cars.map((c) => c.type);
@@ -708,8 +897,8 @@ export class Game {
     const buy = newCars.filter((c, i) => c.type !== oldTypes[i]).reduce((a, c) => a + (CAR_BY_ID.get(c.type)?.price ?? 2000), 0);
     const sell = oldTypes.filter((type, i) => newCars[i]?.type !== type).reduce((a, type) => a + (CAR_BY_ID.get(type)?.price ?? 2000) * 0.5, 0);
     const cost = Math.round(buy - sell);
-    if (cost > 0 && !this.company.canAfford(cost)) return { ok: false, error: 'Not enough cash.', cost };
-    this.company.spend(this.year, 'trains', cost);
+    if (cost > 0 && !c.canAfford(cost)) return { ok: false, error: 'Not enough cash.', cost };
+    c.spend(this.year, 'trains', cost);
     t.cars = newCars;
     return { ok: true, cost };
   }
@@ -722,25 +911,25 @@ export class Game {
   }
 
   /** Swap in the best available engine; the old one is traded in. */
-  upgradeEngine(id: number): CommandResult {
-    const t = this.trains.byId(id);
-    if (!t) return { ok: false, error: 'No such train.', cost: 0 };
+  upgradeEngine(id: number, c: Company = this.company): CommandResult {
+    const t = this.ownTrain(id, c);
+    if (typeof t === 'string') return { ok: false, error: t, cost: 0 };
     const best = this.bestEngineFor(t);
     if (!best) return { ok: false, error: 'No suitable engine on sale.', cost: 0 };
     if (best.id === t.engine && engineAgeYears(t, this.tick) < 1) return { ok: false, error: 'Already the best available engine.', cost: 0 };
     const cost = best.price - engineTradeIn(t, this.tick);
-    if (!this.company.canAfford(cost)) return { ok: false, error: 'Not enough cash.', cost };
-    this.company.spend(this.year, 'trains', cost);
+    if (!c.canAfford(cost)) return { ok: false, error: 'Not enough cash.', cost };
+    c.spend(this.year, 'trains', cost);
     t.engine = best.id;
     t.engineBuiltTick = this.tick;
     return { ok: true, cost };
   }
 
-  duplicateTrain(id: number): CommandResult & { train?: Train } {
-    const t = this.trains.byId(id);
-    if (!t) return { ok: false, error: 'No such train.', cost: 0 };
+  duplicateTrain(id: number, c: Company = this.company): CommandResult & { train?: Train } {
+    const t = this.ownTrain(id, c);
+    if (typeof t === 'string') return { ok: false, error: t, cost: 0 };
     const engine = enginesAvailable(this.year).some((e) => e.id === t.engine) ? t.engine : this.bestEngineFor(t)?.id;
     if (!engine) return { ok: false, error: 'No suitable engine on sale.', cost: 0 };
-    return this.buyTrain(engine, t.cars.map((c) => c.cargo), t.route);
+    return this.buyTrain(engine, t.cars.map((car) => car.cargo), t.route, c);
   }
 }

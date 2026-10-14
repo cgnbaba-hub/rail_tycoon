@@ -227,7 +227,7 @@ describe('city growth', () => {
     const w = flatWorld(32);
     const city = addTown(w, 'Growtown', 14, 14, 2000);
     for (let x = 0; x < 32; x++) w.flags[w.tileIndex(x, 18)] |= F.Road;
-    w.track.nodes.set(w.tileIndex(16, 12), { z: 2, conn: 0, double: 0, kind: 0, span: -1, station: -1 } as never);
+    w.track.nodes.set(w.tileIndex(16, 12), { z: 2, conn: 0, double: 0, kind: 0, span: -1, station: -1, owner: 0 });
     const rng = new Rng(1);
     let added = 0;
     for (let i = 0; i < 30; i++) if (addBuilding(w, w.cities[city], rng)) added++;

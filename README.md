@@ -26,6 +26,7 @@ npx vite-node scripts/preview.ts -- <seed> <size> <rot 0-3> <tile width 8|16|32>
 npx vite-node scripts/mapstats.ts -- <seed> <size>
 npx vite-node scripts/balance.ts -- <seed> [engine] [cars]   # one-year economics check
 npx vite-node scripts/stress.ts                              # 120 trains, signalling + perf
+npx vite-node scripts/rivals.ts -- <seed> <years> <level>    # watch AI rivals for a few years
 ```
 
 ## Controls
@@ -37,7 +38,8 @@ npx vite-node scripts/stress.ts                              # 120 trains, signa
 | `B` | Build station — hover shows the catchment and what it covers; `B` again cycles depot/station/terminal, `R` rotates |
 | `X` | Bulldoze track, bridges/tunnels (whole span) or stations |
 | `F` | Trains: sortable fleet list, buy a new train (engine, route, cars, live profit estimate) |
-| `M` | Finance: books, bonds, stock chart & share actions, your portfolio |
+| `M` | Finance: books, bonds, stock chart & share actions, your portfolio (trade any railroad) |
+| `O` | Railroads: rivals, chairmen, stakes, takeover votes, board confidence |
 | Click a top-bar chip | Economy report · stock window · your portfolio |
 | Click a train | Select it: status, cargo, route, profit; edit, follow, duplicate, upgrade engine, sell |
 | `Ctrl+Z` | Undo the last construction (full refund within 7 in-game days) |
@@ -52,7 +54,7 @@ npx vite-node scripts/stress.ts                              # 120 trains, signa
 | `G` | Tile grid |
 | `L` | Town labels |
 | `C` | Centre on pinned tile / largest town |
-| `N` | New map (seed, size, water, terrain, forests, towns, start year) |
+| `N` | New map (seed, size, water, terrain, forests, towns, start year, rivals, rival skill & attitude) |
 | `H` / `?` | Help |
 
 The overview map in the lower right is clickable/draggable.
@@ -88,6 +90,14 @@ cheaper with a good credit rating; running out of cash forces expensive emergenc
 You can buy more shares (on margin), sell, or sell short — watch the margin gauge. Your
 personal net worth is in the top bar.
 
+**Rivals.** Up to three rival barons (two by default) build their own railways — their
+stations have coloured roofs and labels — and play the stock market. A baron who buys 30 %
+of your company can call a takeover vote; your own stake, a rising share price and profits
+keep your shareholders loyal. From the third year the shareholders vote on you every
+January: lose twice in a row and you are out. A company whose debts exceed its assets goes
+bankrupt. You can raid rivals too: buy their shares and propose a merger in the Railroads
+window (`O`). Choose *friendly* rivals in the new-map dialog for a gentler game.
+
 Single track carries one train per block between stations; double track lets trains pass
 anywhere. Steep grades slow heavy trains to a crawl. Pause any time — building works while
 paused, and construction can be undone for a full refund for a week of game time.
@@ -96,7 +106,8 @@ paused, and construction can be undone for a full refund for a week of game time
 
 ```
 src/sim/     deterministic simulation (no DOM): rng, noise, world, mapgen, time, track,
-             construction, trains, economy, cycle, growth, company, game
+             construction, trains, economy, cycle, growth, company, finance, chairman,
+             ai (rival barons), rivals (mergers, bankruptcy, board vote), game
 src/render/  palette, iso projection, camera, software rasterizer, chunk renderer
 src/ui/      DOM HUD, inspector, minimap, dialogs, runtime-generated pixel font
 src/data/    JSON data: cargo, industries, buildings, mapgen, names, time

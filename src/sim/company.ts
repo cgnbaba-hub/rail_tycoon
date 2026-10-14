@@ -121,6 +121,18 @@ export class Company {
   name: string;
   ticker: string;
   cash: number;
+  /** Holder key of the chairman (the baron who runs it). */
+  chairman: string;
+  /** Company colour (palette name) for the map and charts. */
+  color: string;
+  /** Set when the company has been merged away or went bankrupt. */
+  defunct: false | 'merged' | 'bankrupt' = false;
+  /** Consecutive month-ends with negative cash and debts above assets. */
+  insolventMonths = 0;
+  /** Lost board votes in a row. */
+  boardStrikes = 0;
+  /** Acquirer company id → day before which it may not call another merger vote. */
+  readonly mergerCooldown = new Map<number, number>();
   /** year → category → amount spent (refunds are negative). */
   readonly ledger = new Map<number, Map<ExpenseCategory, number>>();
   /** year → cargo id → revenue. */
@@ -157,21 +169,23 @@ export class Company {
   readonly stock: StockState;
   readonly history: YearRecord[] = [];
 
-  constructor(id: number, name: string, ticker: string, cash: number, shares: number, price: number) {
+  constructor(id: number, name: string, ticker: string, cash: number, shares: number, price: number, chairman = 'player', color = 'gold') {
     this.id = id;
     this.name = name;
     this.ticker = ticker;
     this.cash = cash;
+    this.chairman = chairman;
+    this.color = color;
     this.shares = shares;
     this.holders.set('public', shares);
     this.stock = { price, open: price, monthOpen: price, yearOpen: price, volume: 0, daily: [], weekly: [], notes: [] };
   }
 
-  /** Founding: sell `initial` shares at the IPO price; `stake` of them go to the chairman. */
-  static found(id: number, name: string): Company {
+  /** Founding: sell `initial` shares at the IPO price; a stake of them goes to the chairman. */
+  static found(id: number, name: string, chairman = 'player', color = 'gold', ticker = tickerFor(name)): Company {
     const S = FINANCE.shares;
-    const c = new Company(id, name, tickerFor(name), S.initial * S.ipoPrice, S.initial, S.ipoPrice);
-    c.transferShares('public', 'player', Math.round(S.initial * S.chairmanFraction));
+    const c = new Company(id, name, ticker, S.initial * S.ipoPrice, S.initial, S.ipoPrice, chairman, color);
+    c.transferShares('public', chairman, Math.round(S.initial * S.chairmanFraction));
     return c;
   }
 

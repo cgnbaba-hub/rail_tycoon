@@ -17,6 +17,8 @@ export interface Station {
   builtDay: number;
   /** Station improvement ids (economy.json improvements). */
   improvements?: string[];
+  /** Owning company id (0 = the player). */
+  owner: number;
 }
 
 /** Combined effect of a station's improvements. */

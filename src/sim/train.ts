@@ -81,6 +81,8 @@ export interface TrailPoint {
 export interface Train {
   id: number;
   name: string;
+  /** Owning company id (0 = the player). */
+  owner: number;
   engine: string;
   cars: Car[];
   route: RouteStop[];
@@ -320,7 +322,8 @@ export class Signals {
 export interface TrainHost {
   world: World;
   economy: Economy;
-  company: Company;
+  /** Company by id (trains bill their owner). */
+  companyOf(id: number): Company;
   rng: Rng;
   tick: number;
   year: number;
@@ -576,14 +579,24 @@ export class TrainSystem {
   // -- lifecycle ------------------------------------------------------------------------------
 
   /** Place a new train standing in the first stop's station. */
-  spawn(engine: string, cargos: string[], route: RouteStop[], name?: string): Train {
+  private readonly numbers = new Map<number, number>();
+
+  /** Train numbers count per company (No. 1, No. 2, … for each railroad). */
+  private nextNumber(owner: number): number {
+    const n = (this.numbers.get(owner) ?? 0) + 1;
+    this.numbers.set(owner, n);
+    return n;
+  }
+
+  spawn(engine: string, cargos: string[], route: RouteStop[], name?: string, owner = 0): Train {
     const st = this.world.stations[route[0].station];
     if (!st) throw new Error('First stop is not a station');
     const node = stopTile(st);
     const id = this.nextId++;
     const t: Train = {
       id,
-      name: name ?? `No. ${id}`,
+      name: name ?? `No. ${this.nextNumber(owner)}`,
+      owner,
       engine,
       cars: cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: 0, origin: -1, loadedTick: 0 })),
       route: route.map((r) => ({ ...r })),
@@ -746,7 +759,7 @@ export class TrainSystem {
 
   private charge(t: Train, cat: 'fuel' | 'maintenance' | 'repairs', amount: number): void {
     t.stats.costs += amount;
-    this.host.company.spend(this.host.year, cat, amount);
+    this.host.companyOf(t.owner).spend(this.host.year, cat, amount);
   }
 
   private move(t: Train): void {
@@ -960,7 +973,7 @@ export class TrainSystem {
       } else quotes.set(car.cargo, q);
       total += q.total;
       econ.deliver(st.id, car.cargo, car.loads, q.total);
-      this.host.company.earn(this.host.year, car.cargo, q.total);
+      this.host.companyOf(t.owner).earn(this.host.year, car.cargo, q.total);
       t.stats.revenue += q.total;
       t.stats.deliveries += car.loads;
       n += car.loads;

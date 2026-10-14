@@ -189,6 +189,7 @@ describe('bonds & credit', () => {
 
   it('forces emergency bonds when cash runs out', () => {
     const g = game();
+    g.company.infrastructure = 600_000; // assets to borrow against
     g.company.cash = -150_000;
     run(g, 32);
     expect(g.company.bonds.length).toBe(2);

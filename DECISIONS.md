@@ -176,3 +176,42 @@ Decisions made without asking (per the working rules). Revisit any of them on re
 - Known limitations: trains are drawn above the scenery, so they can show in front of a tall
   building that should hide them; a train reversing out of a terminus briefly overhangs the
   buffer stop (true reversal of the whole train would need a simulation change).
+
+## Rivals & takeovers (M6)
+- **Ownership is a number on every track node, station and train** (company id, 0 = you).
+  Construction and train commands take the acting company; the route planner simply refuses
+  nodes owned by anyone else, so rival networks never join (no shared track or running
+  rights — a later option). Stations of different railroads may serve the same town and
+  split its passengers through the normal catchment/saturation rules.
+- **AI barons use exactly the player's commands** (`buildStation`, `buildTrack`, `buyTrain`,
+  `issueBond`, `buyStock`, …) and pay the same prices, so they can't cheat. A whole line is
+  built in one atomic `Game.buildLine` that rolls back if any part fails or it costs too much.
+  Rival construction is not undoable and clears your pending undos only if it touched the
+  same tiles.
+- **The AI is deliberately simple and readable**: once a month per baron, on its own
+  schedule, with its own forked RNG (deterministic). It scores lines by
+  √(pop A · pop B) · distance weight · competition penalty, tries the top few, and only builds
+  what its revenue estimate says will pay. It is not a pathfinding optimiser; it builds point-
+  to-point lines and extends from its own stations.
+- **Personalities** are data (`ai.json`): build interval, cash reserve, credit limit, trains
+  per route, distance range, competition tolerance, dividend payout and stock behaviour.
+  Skill levels scale building frequency and trading size. *Friendly* rivals never short,
+  raid or vote against you (they still compete for passengers).
+- **Takeovers need a shareholder vote** rather than happening at 50 %: the bidder must hold
+  30 %, offers its own shares worth the target price + 15 %, the target's chairman votes no,
+  other barons take the premium, and the public splits by a published formula (more likely
+  yes after a bad year). This makes defence possible: hold a big stake, keep the price up.
+  The player can do the same to rivals from the Railroads window.
+- **Bankruptcy replaces endless emergency bonds** only when debts exceed assets (negative
+  book value): a merely cash-poor company still gets emergency bonds as in M5. The torn-up
+  railway is removed outright (no auction yet).
+- **Board vote:** from the third January on. Your shares support you; the public's support
+  follows the year's share-price change and profit; hostile barons vote against. One failed
+  vote is a warning; two in a row end the game. It rewards keeping a stake and a rising price
+  rather than just staying solvent.
+- **Game over is soft:** the simulation keeps running, you keep your shares and can trade, but
+  construction, train and company-finance commands are refused.
+- **Colours:** you are gold; rivals are sky, tile-red and teal. Rival stations get roofs and
+  label rules in their colour, the minimap draws rival track in their colour; track itself is
+  not recoloured on the main map to keep the strict palette readable.
+

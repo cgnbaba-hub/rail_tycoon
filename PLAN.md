@@ -40,7 +40,7 @@ tests/      Vitest specs for sim + pure render math
 | M3 | Trains & cargo ✅ | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling / passing sidings on the track graph, load/unload, revenue formula (+ revenue estimate & payback in the track preview), fuel/maintenance, track maintenance, breakdowns, bridge speed/weight limits. |
 | M4 | Economy ✅ | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
 | M5 | Finance ✅ | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
-| M6 | AI & takeovers | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
+| M6 | AI & takeovers ✅ | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
 | M7 | Improved UI | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
 | M8 | Content & polish | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
 
@@ -128,3 +128,17 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] Track: ballast with shoulders, sleepers, two-tone rails, smooth curves
 - [x] Bridges (trestle, stone viaduct, steel truss), tunnel portals, buffer stops, round steam puffs
 - [x] `scripts/showcase.ts`: renders a railway test scene in all rotations plus a sprite sheet to PNG
+
+## M6 detailed checklist
+
+- [x] Ownership of track, stations and trains; the planner treats other railroads' track as an obstacle; no stations, bulldozing or train routes on rival property; each train bills its owner
+- [x] Up to three AI barons (fictional) with personalities — cautious builder, aggressive expander, stock speculator — and three skill levels (relaxed / normal / ruthless) plus a friendly mode
+- [x] AI building: candidate town pairs and extensions scored by population, distance and competition; station placement by coverage; profitability gate; double track when it can afford several trains; borrows within its credit limit; adds trains where cargo piles up; sells loss-makers each January; dividends by payout ratio
+- [x] AI trading: keeps a stake in its own company, buys cheap shares, takes profits, sells short what looks dear (speculator), raids smaller railroads and calls merger votes
+- [x] Mergers with a shareholder vote (stake ≥ 30 % to call it, 15 % premium, cooldown after a failed vote): shares exchanged, shorts covered at the offer, assets, debts and the whole railway transferred
+- [x] Bankruptcy: a company whose debts exceed its assets gets no emergency bonds; still in the red after two month-ends, its shares become worthless and its railway is torn up
+- [x] Board vote on the player every January from the third year; two votes of no confidence in a row end the game
+- [x] Game over (taken over, bankrupt, voted out) with "keep watching" as an investor
+- [x] UI: new-game options (rivals 0–3, skill, attitude), Railroads window (`O`: companies, chairmen, prices, book value, profit, stakes, ownership pies, takeover vote preview, board confidence), trade any company from the portfolio, rival colours (station roofs and labels, minimap track), owner in the inspector, read-only rival trains, rival news and warnings, board vote in the year-end report, game-over dialog
+- [x] Tests: founding of rivals, ownership rules, billing, undo isolation, AI determinism and building, friendly mode, merger rules/vote/execution/cooldown, takeover of the player, bankruptcy (direct and after insolvency, player game over), board vote and removal after two strikes
+

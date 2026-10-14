@@ -1137,3 +1137,37 @@ ol.route li.cur {
 #btn-new {
   margin-left: auto;
 }
+
+/* --- rivals ------------------------------------------------------------------------- */
+.modal.companies {
+  max-width: min(64em, 96vw);
+  width: 64em;
+}
+.co-tag {
+  white-space: nowrap;
+}
+.table.companies tr[data-co] {
+  cursor: pointer;
+}
+.table.companies tr.sel td {
+  background: var(--c-oxblood);
+}
+.table.companies tr.defunct td {
+  color: var(--muted);
+}
+.table.companies td small {
+  color: var(--muted);
+  font-size: 1em;
+}
+.table.companies td i {
+  font-style: normal;
+}
+.co-detail {
+  margin-top: 0.6em;
+}
+.warnbox {
+  border: var(--px) solid var(--c-ember);
+  padding: 0.3em 0.5em;
+  color: var(--c-wheat);
+  margin: 0.4em 0;
+}

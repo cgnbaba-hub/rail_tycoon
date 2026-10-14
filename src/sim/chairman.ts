@@ -11,6 +11,8 @@ export const PLAYER = 'player';
  * loan), long holdings (read from each company's share register) and short positions.
  */
 export class Chairman {
+  /** Share-register key ('player' for the human, 'ai:<n>' for rivals). */
+  readonly key: string;
   name: string;
   cash: number;
   /** companyId → shares sold short. */
@@ -20,7 +22,8 @@ export class Chairman {
   /** Monthly net-worth history (newest last). */
   readonly worthHistory: number[] = [];
 
-  constructor(name: string, cash: number) {
+  constructor(name: string, cash: number, key = PLAYER) {
+    this.key = key;
     this.name = name;
     this.cash = cash;
   }
@@ -51,7 +54,7 @@ export interface AccountSummary {
 }
 
 export function positions(ch: Chairman, companies: readonly Company[]): Position[] {
-  return companies.map((company) => ({ company, long: company.holding(PLAYER), short: ch.short(company.id) })).filter((p) => p.long > 0 || p.short > 0);
+  return companies.map((company) => ({ company, long: company.holding(ch.key), short: ch.short(company.id) })).filter((p) => p.long > 0 || p.short > 0);
 }
 
 export function account(ch: Chairman, companies: readonly Company[]): AccountSummary {
@@ -69,7 +72,7 @@ export function account(ch: Chairman, companies: readonly Company[]): AccountSum
  */
 export function liquidationPrice(ch: Chairman, companies: readonly Company[], company: Company): number | null {
   const acc = account(ch, companies);
-  const L = company.holding(PLAYER);
+  const L = company.holding(ch.key);
   const S = ch.short(company.id);
   if (L === 0 && S === 0) return null;
   const p0 = company.stock.price;
@@ -134,7 +137,7 @@ export function buyShares(ch: Chairman, companies: readonly Company[], c: Compan
   // After buying, the position is worth n × market price; equity changes by n·p − cost.
   if (!canBuy(ch, companies, c, n)) return no('Not enough cash or margin for that many shares.');
   ch.cash -= cost;
-  c.transferShares('public', PLAYER, n);
+  c.transferShares('public', ch.key, n);
   applyImpact(c, n);
   return { ok: true, shares: n, price, cash: -cost };
 }
@@ -142,11 +145,11 @@ export function buyShares(ch: Chairman, companies: readonly Company[], c: Compan
 export function sellShares(ch: Chairman, c: Company, n: number): TradeResult {
   n = Math.floor(n);
   if (n <= 0) return no('Choose how many shares.');
-  if (c.holding(PLAYER) < n) return no('You do not own that many shares.');
+  if (c.holding(ch.key) < n) return no('You do not own that many shares.');
   const price = executionPrice(c, -n);
   const proceeds = n * price * (1 - M.commission);
   ch.cash += proceeds;
-  c.transferShares(PLAYER, 'public', n);
+  c.transferShares(ch.key, 'public', n);
   applyImpact(c, -n);
   return { ok: true, shares: n, price, cash: proceeds };
 }
