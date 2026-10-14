@@ -43,6 +43,36 @@ export interface CarDef {
   body: string;
   roof: string;
   trim: string;
+  /** Extras (caboose, dining car): revenue/breakdown multipliers. */
+  bonus?: { freight?: number; passengers?: number; breakdown?: number };
+}
+
+export interface ImprovementDef {
+  id: string;
+  name: string;
+  cost: number;
+  upkeep: number;
+  requires?: string;
+  desc: string;
+  effects: {
+    dwell?: number;
+    adhesion?: number;
+    breakdown?: number;
+    maintenance?: number;
+    revenue?: Record<string, number>;
+    supply?: Record<string, number>;
+    storage?: number;
+    fresh?: number;
+  };
+}
+
+export interface CycleStateDef {
+  id: string;
+  name: string;
+  revenue: number;
+  growth: number;
+  confidence: number;
+  symbol: string;
 }
 
 export interface EngineDef {
@@ -68,7 +98,42 @@ export type EconomicModel = 'basic' | 'advanced' | 'expert';
 
 export interface EconomyData {
   model: EconomicModel;
-  models: Record<EconomicModel, { name: string; nonDemandedFactor: number; processorsNeedInputs: boolean }>;
+  models: Record<
+    EconomicModel,
+    { name: string; nonDemandedFactor: number; processorsNeedInputs: boolean; saturation: number; priceLevels: boolean; buyIndustries: boolean; desc: string }
+  >;
+  saturation: {
+    townCapacityPerThousand: Record<string, number>;
+    minTownCapacity: number;
+    industryCapacityFactor: number;
+    dropPerCapacity: number;
+    recoveryHalfLifeDays: number;
+    floor: number;
+    historyMonths: number;
+  };
+  cycle: {
+    states: CycleStateDef[];
+    start: string;
+    transitions: Record<string, Record<string, number>>;
+    durationMonths: [number, number];
+    warningMonths: [number, number];
+    confidenceNoise: number;
+    headlines: { better: string[]; worse: string[]; same: string[] };
+  };
+  priceLevels: { volatility: number; reversion: number; min: number; max: number };
+  cityGrowth: {
+    naturalPerYear: number;
+    serviceBonusPerYear: number;
+    supplyBonusPerYear: number;
+    serviceTarget: number;
+    supplyTargetPerThousandPerYear: number;
+    maxNewBuildingsPerMonth: number;
+    newIndustryChanceOnClassUp: number;
+  };
+  industryGrowth: { servedRatio: number; growth: number; neglectRatio: number; decline: number; min: number; max: number };
+  ownership: { marginFraction: number; upkeepPerYear: number; priceYears: number; potentialShare: number; minPrice: number; sellFraction: number };
+  improvements: ImprovementDef[];
+  serviceDays: number;
   townSupply: Record<string, number>;
   townDemand: string[][];
   processorWithoutInputs: number;
@@ -297,6 +362,9 @@ export const ECONOMY: EconomyData = economyJson as unknown as EconomyData;
 export const ENGINE_BY_ID: ReadonlyMap<string, EngineDef> = new Map(ENGINES.map((e) => [e.id, e]));
 export const CAR_BY_ID: ReadonlyMap<string, CarDef> = new Map(CARS.map((c) => [c.id, c]));
 
+export const IMPROVEMENTS: ImprovementDef[] = (economyJson as unknown as EconomyData).improvements;
+export const IMPROVEMENT_BY_ID: ReadonlyMap<string, ImprovementDef> = new Map(IMPROVEMENTS.map((i) => [i.id, i]));
+
 export const CARGO_BY_ID: ReadonlyMap<string, CargoDef> = new Map(CARGO.map((c) => [c.id, c]));
 export const INDUSTRY_BY_ID: ReadonlyMap<string, IndustryDef> = new Map(INDUSTRIES.map((d) => [d.id, d]));
 
@@ -314,5 +382,11 @@ export function validateData(): void {
   for (const lvl of ECONOMY.townDemand) for (const c of lvl) if (!CARGO_BY_ID.has(c)) throw new Error(`Town demand references unknown cargo ${c}`);
   for (const c of Object.keys(ECONOMY.townSupply)) if (!CARGO_BY_ID.has(c)) throw new Error(`Town supply references unknown cargo ${c}`);
   for (const e of ENGINES) if (!(e.fuel in ECONOMY.fuelPrice)) throw new Error(`Engine ${e.id} has unpriced fuel ${e.fuel}`);
+  const states = new Set(ECONOMY.cycle.states.map((st) => st.id));
+  for (const [from, to] of Object.entries(ECONOMY.cycle.transitions)) {
+    if (!states.has(from)) throw new Error(`Cycle transition from unknown state ${from}`);
+    for (const t of Object.keys(to)) if (!states.has(t)) throw new Error(`Cycle transition to unknown state ${t}`);
+  }
+  for (const imp of IMPROVEMENTS) if (imp.requires && !IMPROVEMENT_BY_ID.has(imp.requires)) throw new Error(`Improvement ${imp.id} requires unknown ${imp.requires}`);
   if (TIME.monthDays.length !== 12 || TIME.monthNames.length !== 12) throw new Error('time.json needs 12 months');
 }

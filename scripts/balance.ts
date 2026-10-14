@@ -48,3 +48,5 @@ for (const [k, v] of g.company.ledger.get(y) ?? []) console.log(`  ${k}: $${Math
 const opProfit = g.company.revenueIn(y) - g.company.operatingCostsIn(y);
 console.log(`operating profit $${Math.round(opProfit)}; payback on track+train ≈ ${((track.cost + buy.cost) / opProfit).toFixed(1)} years`);
 console.log(`train ${t.name}: state ${t.state}, odometer ${t.odometer.toFixed(0)} tiles`);
+for (const s of [a, b]) console.log(`${s.name} demand`, JSON.stringify(Object.fromEntries(Object.entries(g.economy.cargoAt(s.id).demand).map(([k, v]) => [k, +v.toFixed(2)]))), "cycle", g.economy.cycle.state);
+console.log("towns", g.world.cities.slice(0, 6).map((c) => `${c.name} ${Math.round(c.population)} g=${((c.growth ?? 0) * 100).toFixed(1)}%`).join(", "));

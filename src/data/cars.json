@@ -1,5 +1,5 @@
 {
-  "_doc": "Rolling stock. tare = empty weight (tons). shape drives the procedural sprite: closed (box with roof), coach (windows), open (load visible on top), tank (round-ish), flat (low deck with load). body/roof/trim are palette names.",
+  "_doc": "Rolling stock. bonus (caboose/dining car only, one each per train): freight/passengers = revenue multiplier, breakdown = breakdown chance multiplier. tare = empty weight (tons). shape drives the procedural sprite: closed (box with roof), coach (windows), open (load visible on top), tank (round-ish), flat (low deck with load). body/roof/trim are palette names.",
   "cars": [
     { "id": "coach", "name": "Passenger coach", "tare": 22, "price": 3500, "shape": "coach", "body": "brick", "roof": "night", "trim": "cream" },
     { "id": "mail", "name": "Mail car", "tare": 18, "price": 3000, "shape": "closed", "body": "teal", "roof": "night", "trim": "bone" },
@@ -9,6 +9,7 @@
     { "id": "tank", "name": "Tank car", "tare": 16, "price": 2800, "shape": "tank", "body": "night", "roof": "slate", "trim": "steel" },
     { "id": "stock", "name": "Stock car", "tare": 13, "price": 2200, "shape": "slatted", "body": "brick", "roof": "oxblood", "trim": "wheat" },
     { "id": "reefer", "name": "Refrigerator car", "tare": 17, "price": 3200, "shape": "closed", "body": "bone", "roof": "fog", "trim": "tile" },
-    { "id": "caboose", "name": "Caboose", "tare": 12, "price": 2500, "shape": "caboose", "body": "tile", "roof": "oxblood", "trim": "gold" }
+    { "id": "caboose", "name": "Caboose", "tare": 12, "price": 2500, "shape": "caboose", "body": "tile", "roof": "oxblood", "trim": "gold", "bonus": { "freight": 1.08, "breakdown": 0.85 } },
+    { "id": "dining", "name": "Dining car", "tare": 24, "price": 5000, "shape": "coach", "body": "pine", "roof": "night", "trim": "gold", "bonus": { "passengers": 1.15 } }
   ]
 }

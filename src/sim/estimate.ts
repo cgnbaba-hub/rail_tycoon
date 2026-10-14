@@ -1,9 +1,10 @@
 import { CONSTRUCTION, ECONOMY, ENGINE_BY_ID, TIME } from '../data';
 import { gradePercent } from './construction';
-import { quoteRevenue, DAYS_PER_MONTH } from './economy';
+import { DAYS_PER_MONTH, steadyDemand } from './economy';
+import { stationEffects } from './station';
 import { findTrainPath, tileDistance } from './routing';
 import { NODE_BRIDGE, stepLength } from './track';
-import { balanceSpeed, carForCargo, enginesAvailable, stopTile, trainTons, type RouteStop } from './train';
+import { balanceSpeed, carForCargo, cargoBonus, consistBonus, enginesAvailable, isSpecialCar, stopTile, trainTons, type RouteStop } from './train';
 import { consistPrice, type Game } from './game';
 
 export interface LegEstimate {
@@ -44,7 +45,8 @@ export function estimateTrain(game: Game, engineId: string, cargos: string[], ro
   if (!e) return { ...empty, error: 'Pick an engine.' };
   if (route.length < 2) return { ...empty, error: 'Add at least two stops.' };
   const world = game.world;
-  const cars = cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: 1 }));
+  const cars = cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: isSpecialCar(c) ? 0 : 1 }));
+  const loadable = cars.filter((c) => c.loads > 0).length;
   const fullTons = trainTons(e, cars);
   const L = ECONOMY.loading;
   const legs: LegEstimate[] = [];
@@ -55,7 +57,7 @@ export function estimateTrain(game: Game, engineId: string, cargos: string[], ro
     // Trains may reverse in stations, so each leg starts with a free heading.
     const path = findTrainPath(world, stopTile(a), -1, new Set([stopTile(b)]));
     if (!path) return { ...empty, legs, error: `${a.name} and ${b.name} are not connected by track.` };
-    let days = (L.minDwellHours + L.hoursPerLoad * cars.length * 2) / TIME.ticksPerDay;
+    let days = ((L.minDwellHours + L.hoursPerLoad * loadable * 2) * stationEffects(b).dwell) / TIME.ticksPerDay;
     let maxGrade = 0;
     let crawl = e.topSpeed;
     for (let k = 0; k + 1 < path.nodes.length; k++) {
@@ -83,7 +85,8 @@ export function estimateTrain(game: Game, engineId: string, cargos: string[], ro
 function finishEstimate(game: Game, engineId: string, cargos: string[], legs: LegEstimate[], price: number): TrainEstimate {
   const e = ENGINE_BY_ID.get(engineId)!;
   const world = game.world;
-  const cars = cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: 1 }));
+  const cars = cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: isSpecialCar(c) ? 0 : 1 }));
+  const bonus = consistBonus(cars);
   const fullTons = trainTons(e, cars);
   const roundTripDays = legs.reduce((s, l) => s + l.days, 0);
   const tripsPerYear = 365 / Math.max(0.5, roundTripDays);
@@ -94,13 +97,17 @@ function finishEstimate(game: Game, engineId: string, cargos: string[], legs: Le
     const supply = econ.station(leg.from)?.supply ?? {};
     const dist = tileDistance(world, stopTile(world.stations[leg.from]!), stopTile(world.stations[leg.to]!));
     const counts = new Map<string, number>();
-    for (const c of cargos) counts.set(c, (counts.get(c) ?? 0) + 1);
+    for (const c of cargos) if (!isSpecialCar(c)) counts.set(c, (counts.get(c) ?? 0) + 1);
     let perTrip = 0;
     for (const [cargo, n] of counts) {
       const available = ((supply[cargo] ?? 0) * roundTripDays) / DAYS_PER_MONTH;
       const loads = Math.min(n, available);
       if (loads <= 0) continue;
-      perTrip += quoteRevenue(cargo, loads, dist, leg.days, econ.accepts(leg.to, cargo), econ.model).total;
+      // This train alone will push the destination's demand down to its steady level.
+      const perMonth = (loads * tripsPerYear) / 12;
+      const level = Math.min(econ.demandLevel(leg.to, cargo), steadyDemand(perMonth, econ.capacityOf(leg.to, cargo), econ.model));
+      const from = world.stations[leg.from];
+      perTrip += econ.quote(leg.to, cargo, loads, dist, leg.days, { bonus: cargoBonus(bonus, cargo), demandLevel: level, graceBonus: stationEffects(from).fresh }).total;
     }
     leg.revenue = perTrip * tripsPerYear;
     revenuePerYear += leg.revenue;
@@ -156,7 +163,7 @@ export function estimateConnection(game: Game, stationA: number, stationB: numbe
     { station: stationB, load: 'auto', waitFull: false },
   ];
   const cargos = suggestConsist(game, engine.id, route);
-  const cars = cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: 1 }));
+  const cars = cargos.map((c) => ({ type: carForCargo(c), cargo: c, loads: isSpecialCar(c) ? 0 : 1 }));
   const tons = trainTons(engine, cars);
   const v = (engine.topSpeed + Math.max(3, balanceSpeed(engine, tons, maxGrade))) / 2;
   const dwell = (ECONOMY.loading.minDwellHours + ECONOMY.loading.hoursPerLoad * cars.length * 2) / TIME.ticksPerDay;

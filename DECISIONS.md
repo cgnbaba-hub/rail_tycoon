@@ -91,7 +91,34 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   reduced rate (economic model factor). Cargo is never "delivered" back to its origin.
 - Distance for revenue is the straight line between origin and destination stations (so
   direct lines pay best, as in the original).
-- Economic model defaults to *Basic* in M3 and can be chosen in the new-map dialog; M4 adds
-  the remaining model differences (saturation, price levels, industry ownership).
+- Economic model defaults to *Basic* and can be chosen in the new-map dialog.
 - Wrecks are on by default but rare (old engines, overweight trains on light bridges); they
   can be turned off in the new-map dialog.
+
+## Economy (M4)
+- **Saturation is per station and cargo**, not per town: flooding one station drops its
+  price, so spreading deliveries over several stations (or towns) pays — the classic
+  "feed many destinations" strategy. It recovers with a 45-day half-life and the station panel
+  shows level, a 12-month history and the days needed to recover to 90 %.
+- **The economic cycle is never a surprise**: the next state and its timing are fixed when a
+  state begins; for the last 3–6 months business confidence drifts towards the coming level
+  and headlines hint at the direction. Hidden state stays hidden (we never print "recession in
+  4 months"), but a watchful player always gets warning.
+- **Models:** Basic = forgiving (undemanded 75 %, gentle saturation, plants run without
+  inputs); Advanced = plants need inputs, undemanded 50 %; Expert = harsh saturation,
+  undemanded 10 %, moving cargo prices and industry ownership. Model is fixed per game.
+- **Industry ownership** (Expert) is a simple income stream (output × margin); price looks at
+  potential capacity so idle plants are not free money, but feeding a bought plant is the
+  intended profitable play.
+- **City growth only adds buildings on free flat lots** off the street grid and never touches
+  track or tiles an undo could restore; new industries only appear on flat land (runtime never
+  reshapes terrain). Undo of a demolition gives back the removed population as a *delta*, so
+  growth in the meantime is kept.
+- **Station improvements** are per station, built from the station panel, have yearly upkeep
+  and are not undoable; building one clears the undo stack (an undo that removed the station
+  would otherwise lose the improvement silently). They appear as small outbuildings across the
+  track from the station building.
+- **Caboose & dining car** are bought as extra cars (`@caboose`, `@dining` in a consist);
+  they never load cargo and count once per train.
+- Service buffs (maintenance shop, roundhouse) last 60 days after a stop; the sand house only
+  helps on the next leg.

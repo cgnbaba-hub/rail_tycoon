@@ -1,4 +1,4 @@
-import { STATION_BY_ID, STATION_NAME_SUFFIXES, type StationDef } from '../data';
+import { IMPROVEMENT_BY_ID, STATION_BY_ID, STATION_NAME_SUFFIXES, type StationDef } from '../data';
 import type { City, Industry, World } from './world';
 
 export interface Station {
@@ -15,6 +15,37 @@ export interface Station {
   cityId: number;
   /** Day the station opened. */
   builtDay: number;
+  /** Station improvement ids (economy.json improvements). */
+  improvements?: string[];
+}
+
+/** Combined effect of a station's improvements. */
+export interface StationEffects {
+  dwell: number;
+  adhesion: number;
+  breakdown: number;
+  maintenance: number;
+  storage: number;
+  fresh: number;
+  revenue: Record<string, number>;
+  supply: Record<string, number>;
+}
+
+export function stationEffects(st: Station | null | undefined): StationEffects {
+  const fx: StationEffects = { dwell: 1, adhesion: 1, breakdown: 1, maintenance: 1, storage: 1, fresh: 0, revenue: {}, supply: {} };
+  for (const id of st?.improvements ?? []) {
+    const e = IMPROVEMENT_BY_ID.get(id)?.effects;
+    if (!e) continue;
+    if (e.dwell) fx.dwell *= e.dwell;
+    if (e.adhesion) fx.adhesion = Math.max(fx.adhesion, e.adhesion);
+    if (e.breakdown) fx.breakdown *= e.breakdown;
+    if (e.maintenance) fx.maintenance *= e.maintenance;
+    if (e.storage) fx.storage = Math.max(fx.storage, e.storage);
+    if (e.fresh) fx.fresh += e.fresh;
+    for (const [c, f] of Object.entries(e.revenue ?? {})) fx.revenue[c] = (fx.revenue[c] ?? 1) * f;
+    for (const [c, f] of Object.entries(e.supply ?? {})) fx.supply[c] = (fx.supply[c] ?? 1) * f;
+  }
+  return fx;
 }
 
 /** Inclusive tile rectangle [x0, y0, x1, y1]. */

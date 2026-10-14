@@ -40,3 +40,11 @@ export function addTown(w: World, name: string, x: number, y: number, population
   w.cities.push({ id: cityId, name, x: x + 1, y: y + 1, population, classIndex, radius: 2, buildingIds: ids });
   return cityId;
 }
+
+/** Place an industry (2×2 unless given) with its top-left tile at (x, y). */
+export function addIndustry(w: World, defId: string, x: number, y: number, size: [number, number] = [2, 2]): number {
+  const id = w.industries.length;
+  w.industries.push({ id, defId, name: `Test ${defId}`, x, y, w: size[0], h: size[1], cityId: 0 });
+  for (let dy = 0; dy < size[1]; dy++) for (let dx = 0; dx < size[0]; dx++) w.occupant[w.tileIndex(x + dx, y + dy)] = (2 << 24) | (id + 1);
+  return id;
+}

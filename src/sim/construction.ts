@@ -721,8 +721,9 @@ export class Transaction {
     if (!this.buildings.has(id)) this.buildings.set(id, this.world.buildings[id].demolished);
   }
 
-  touchCity(id: number): void {
-    if (!this.cities.has(id)) this.cities.set(id, this.world.cities[id].population);
+  /** Record population removed from a town (given back on revert, as a delta so later growth is kept). */
+  removePopulation(id: number, amount: number): void {
+    this.cities.set(id, (this.cities.get(id) ?? 0) + amount);
   }
 
   touchStation(id: number): void {
@@ -744,7 +745,7 @@ export class Transaction {
       w.markDirty(i);
     }
     for (const [id, dem] of this.buildings) w.buildings[id].demolished = dem;
-    for (const [id, pop] of this.cities) w.cities[id].population = pop;
+    for (const [id, removed] of this.cities) w.cities[id].population += removed;
     for (const [id, st] of this.stations) w.stations[id] = st;
     w.stations.length = this.stationCount;
   }
@@ -758,10 +759,11 @@ function ensureGroundNode(world: World, i: number, tx: Transaction): TrackNode {
   const b = buildingAt(world, i);
   if (b) {
     tx.touchBuilding(b.id);
-    tx.touchCity(b.cityId);
     const city = world.cities[b.cityId];
     const live = city.buildingIds.filter((id) => !world.buildings[id].demolished).length;
-    city.population = Math.max(0, city.population - Math.round(city.population / Math.max(1, live)));
+    const removed = Math.min(city.population, Math.round(city.population / Math.max(1, live)));
+    tx.removePopulation(b.cityId, removed);
+    city.population -= removed;
     b.demolished = true;
     world.occupant[i] = 0;
   }

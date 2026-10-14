@@ -1,4 +1,4 @@
-import { CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, TIME, type EconomicModel } from '../data';
+import { CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, IMPROVEMENT_BY_ID, TIME, type EconomicModel } from '../data';
 import { Company, type ExpenseCategory } from './company';
 import {
   Transaction,
@@ -14,6 +14,8 @@ import {
   type TrackPlan,
 } from './construction';
 import { Economy } from './economy';
+import type { Headline } from './cycle';
+import { monthlyCityGrowth, type GrowthReport } from './growth';
 import { generateWorld } from './mapgen';
 import { Rng } from './rng';
 import type { Station } from './station';
@@ -38,6 +40,10 @@ export type GameEvent =
   | { type: 'year'; date: GameDate }
   | { type: 'built'; label: string; cost: number }
   | { type: 'undone'; label: string; refund: number }
+  | { type: 'cycle'; state: string; date: GameDate }
+  | { type: 'news'; headline: Headline }
+  | { type: 'growth'; reports: GrowthReport[] }
+  | { type: 'industryIncome'; amount: number }
   | TrainEvent;
 
 export interface UndoEntry {
@@ -93,6 +99,7 @@ export class Game {
   /** Ticks since Jan 1 of the start year. */
   tick = 0;
   readonly undoStack: UndoEntry[] = [];
+  private readonly growthRng: Rng;
   private listeners: Array<(e: GameEvent) => void> = [];
 
   constructor(params: MapParams, world?: World, settings?: Partial<GameSettings>) {
@@ -101,7 +108,8 @@ export class Game {
     this.rng = new Rng((params.seed ^ 0xa5a5a5a5) >>> 0);
     this.company = new Company(this.rng.pick(COMPANY.names));
     this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, ...settings };
-    this.economy = new Economy(this.world, this.settings.model);
+    this.economy = new Economy(this.world, this.settings.model, this.rng.fork(11));
+    this.growthRng = this.rng.fork(12);
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
     this.trains = new TrainSystem({
@@ -153,7 +161,7 @@ export class Game {
       this.trains.daily();
       this.emit({ type: 'day', date });
       if (date.day === 1) {
-        this.economy.monthly();
+        this.monthly(date);
         this.trains.monthly();
         this.chargeTrackMaintenance();
         this.emit({ type: 'month', date });
@@ -164,6 +172,30 @@ export class Game {
         }
       }
     }
+  }
+
+  /** Monthly economy: industries, cycle, owned-industry profits, then town growth. */
+  private monthly(date: GameDate): void {
+    const newsBefore = this.economy.cycle.news.length;
+    const stateBefore = this.economy.cycle.state;
+    const income = this.economy.monthly(this.day);
+    const total = income.reduce((a, i) => a + i.amount, 0);
+    if (income.length) {
+      this.company.earnOther(this.year, 'industries', total);
+      this.emit({ type: 'industryIncome', amount: total });
+    }
+    const blocked = new Set(this.undoStack.flatMap((e) => e.tx.touchedTiles));
+    const reports = monthlyCityGrowth(this.world, this.economy, this.growthRng, this.year, blocked);
+    this.economy.resetMonth();
+    if (reports.length) {
+      this.economy.invalidate();
+      this.emit({ type: 'growth', reports });
+    }
+    const cycle = this.economy.cycle;
+    if (cycle.state !== stateBefore) this.emit({ type: 'cycle', state: cycle.state, date });
+    // news is capped (shifted), so compare against the newest entries
+    const fresh = cycle.news.length > newsBefore ? cycle.news.slice(newsBefore) : cycle.news.slice(-1).filter((h) => h.day === this.day);
+    for (const headline of fresh) this.emit({ type: 'news', headline });
   }
 
   /** Monthly upkeep of every track tile and station. */
@@ -177,8 +209,13 @@ export class Game {
       if (n.kind === NODE_TUNNEL) f *= tm.tunnelFactor;
       total += (tm.perTileYear * f) / 12;
     }
-    for (const st of this.world.liveStations()) total += (tm.stationPerYear[st.kind] ?? 0) / 12;
+    let upkeep = 0;
+    for (const st of this.world.liveStations()) {
+      total += (tm.stationPerYear[st.kind] ?? 0) / 12;
+      for (const id of st.improvements ?? []) upkeep += (IMPROVEMENT_BY_ID.get(id)?.upkeep ?? 0) / 12;
+    }
     if (total > 0) this.company.spend(this.year, 'trackMaintenance', total);
+    if (upkeep > 0) this.company.spend(this.year, 'improvementUpkeep', upkeep);
   }
 
   // -------------------------------------------------------------------------------------
@@ -272,6 +309,64 @@ export class Game {
   private pruneUndo(): void {
     const limit = this.day - CONSTRUCTION.undo.windowDays;
     while (this.undoStack.length && this.undoStack[0].day < limit) this.undoStack.shift();
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Economy commands
+  // -------------------------------------------------------------------------------------
+
+  /** Why an improvement can't be built at a station right now (null = it can). */
+  improvementBlocker(stationId: number, improvementId: string): string | null {
+    const st = this.world.stations[stationId];
+    const def = IMPROVEMENT_BY_ID.get(improvementId);
+    if (!st) return 'No such station.';
+    if (!def) return 'Unknown improvement.';
+    const have = st.improvements ?? [];
+    if (have.includes(def.id)) return `${def.name} already built.`;
+    if (def.requires && !have.includes(def.requires)) return `Needs a ${IMPROVEMENT_BY_ID.get(def.requires)?.name.toLowerCase() ?? def.requires} first.`;
+    if (!this.company.canAfford(def.cost)) return 'Not enough cash.';
+    return null;
+  }
+
+  buildImprovement(stationId: number, improvementId: string): CommandResult {
+    const err = this.improvementBlocker(stationId, improvementId);
+    const def = IMPROVEMENT_BY_ID.get(improvementId);
+    if (err || !def) return { ok: false, error: err ?? 'Unknown improvement.', cost: def?.cost ?? 0 };
+    const st = this.world.stations[stationId]!;
+    st.improvements = [...(st.improvements ?? []), def.id];
+    this.company.spend(this.year, 'improvements', def.cost);
+    // An undo that removed the station would silently lose the improvement.
+    this.undoStack.length = 0;
+    this.economy.invalidate();
+    for (const t of st.tiles) this.world.markDirty(t);
+    this.emit({ type: 'built', label: `${def.name} at ${st.name}`, cost: def.cost });
+    return { ok: true, cost: def.cost };
+  }
+
+  canBuyIndustries(): boolean {
+    return ECONOMY.models[this.economy.model].buyIndustries;
+  }
+
+  buyIndustry(industryId: number): CommandResult {
+    const ind = this.world.industries[industryId];
+    if (!ind) return { ok: false, error: 'No such industry.', cost: 0 };
+    if (!this.canBuyIndustries()) return { ok: false, error: 'Industries can only be bought in the Expert economy.', cost: 0 };
+    if (this.economy.owned.has(industryId)) return { ok: false, error: 'You already own it.', cost: 0 };
+    const price = this.economy.industryPrice(ind);
+    if (!this.company.canAfford(price)) return { ok: false, error: 'Not enough cash.', cost: price };
+    this.company.spend(this.year, 'industries', price);
+    this.economy.owned.add(industryId);
+    this.emit({ type: 'built', label: `Bought ${ind.name}`, cost: price });
+    return { ok: true, cost: price };
+  }
+
+  sellIndustry(industryId: number): CommandResult {
+    const ind = this.world.industries[industryId];
+    if (!ind || !this.economy.owned.has(industryId)) return { ok: false, error: 'You don\'t own that industry.', cost: 0 };
+    const value = Math.round(this.economy.industryPrice(ind) * ECONOMY.ownership.sellFraction);
+    this.economy.owned.delete(industryId);
+    this.company.spend(this.year, 'industries', -value);
+    return { ok: true, cost: -value };
   }
 
   // -------------------------------------------------------------------------------------

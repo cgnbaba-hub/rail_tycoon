@@ -39,6 +39,8 @@ export interface Inspection {
   /** Extra outlines (e.g. a station's catchment). */
   extraHighlights?: Highlight[];
   stationId?: number;
+  industryId?: number;
+  cityId?: number;
 }
 
 function cargoChip(id: string): string {
@@ -160,7 +162,7 @@ export function inspectTile(world: World, x: number, y: number): Inspection {
   const occ = world.occupantAt(x, y);
   if (occupantKind(occ) === OCC_INDUSTRY) {
     const ind = world.industries[occupantIndex(occ)];
-    return { title: ind.name, kind: 'industry', rect: [ind.x, ind.y, ind.w, ind.h], html: industryHtml(world, ind) };
+    return { title: ind.name, kind: 'industry', industryId: ind.id, rect: [ind.x, ind.y, ind.w, ind.h], html: industryHtml(world, ind) };
   }
   if (occupantKind(occ) === OCC_BUILDING) {
     const b = world.buildings[occupantIndex(occ)];
@@ -168,6 +170,7 @@ export function inspectTile(world: World, x: number, y: number): Inspection {
     return {
       title: city.name,
       kind: 'city',
+      cityId: city.id,
       rect: [x, y, 1, 1],
       html: row('Building', esc(BUILDING_LABEL[b.defId] ?? b.defId)) + cityHtml(world, city),
     };

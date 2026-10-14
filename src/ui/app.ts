@@ -12,6 +12,7 @@ import { inspectTile, type Inspection } from './inspector';
 import { Minimap } from './minimap';
 import { crispFontSize } from './theme';
 import { BulldozeTool, StationTool, TrackTool, fmtMoney, type Tool, type ToolHost } from './tools';
+import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvementsHtml, industryEconomyHtml, openEconomy, stationDemandHtml, townGrowthHtml } from './economy';
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
@@ -61,6 +62,7 @@ export class App implements ToolHost, TrainUiHost {
   private lastPanelDay = -1;
   private pendingBreakdowns: string[] = [];
   private breakdownTimer: number | null = null;
+  private econDirty = true;
 
   constructor() {
     this.canvas = $('#world') as HTMLCanvasElement;
@@ -84,6 +86,8 @@ export class App implements ToolHost, TrainUiHost {
     this.game = new Game(params, undefined, settings);
     this.selectedTrain = null;
     this.following = null;
+    this.econDirty = true;
+    $('#news').textContent = '';
     this.renderer.trains = this.game.trains;
     this.game.on((e) => this.onGameEvent(e));
     const world = this.game.world;
@@ -233,12 +237,29 @@ export class App implements ToolHost, TrainUiHost {
         this.renderer.addFloater(e.x, e.y, 1, 'WRECK', '#cf5a39');
         if (this.selectedTrain === e.train) this.selectTrain(null);
         break;
+      case 'news':
+        this.showNews(e.headline.text, e.headline.tone);
+        break;
+      case 'cycle': {
+        const s = g.economy.cycle.current;
+        this.toast(`The economy enters ${s.name.toLowerCase() === 'normal' ? 'normal times' : `a ${s.name.toLowerCase()}`}: revenue ×${s.revenue.toFixed(2)}.`, s.revenue >= 1 ? 'money' : 'error');
+        break;
+      }
+      case 'growth': {
+        for (const r of e.reports) {
+          const city = g.world.cities[r.cityId];
+          if (r.classUp) this.toast(`${city.name} has grown into a ${(MAPGEN.cities.classes[city.classIndex]?.name ?? 'town').toLowerCase()}!`, 'money');
+          if (r.newIndustry) this.toast(`A new ${r.newIndustry.name} opened near ${city.name}.`);
+        }
+        break;
+      }
       case 'noroute': {
         const t = g.trains.byId(e.train);
         this.toast(`${t?.name ?? 'A train'} has no route to its next stop.`, 'error');
         break;
       }
     }
+    if (e.type === 'month') this.econDirty = true;
     if (e.type !== 'day' && e.type !== 'month') this.invalidatePanel();
   }
 
@@ -273,6 +294,7 @@ export class App implements ToolHost, TrainUiHost {
       b.addEventListener('click', () => this.setSpeed(i === 0 && this.speed === 0 ? this.lastSpeed : i));
       speed.appendChild(b);
     });
+    $('#econ').addEventListener('click', () => openEconomy(this));
     $('#btn-new').innerHTML = `${icon('newmap')}<span>New map</span>`;
     $('#btn-new').addEventListener('click', () => this.openNewGameDialog());
     $('#btn-help').innerHTML = icon('help');
@@ -363,6 +385,12 @@ export class App implements ToolHost, TrainUiHost {
       this.lastCash = cash;
       this.panelDirty = true;
     }
+    if (this.econDirty) {
+      this.econDirty = false;
+      const el = $('#econ');
+      el.innerHTML = economyChipHtml(this.game);
+      el.dataset.tip = economyTip(this.game);
+    }
     for (const t of this.railButtons) {
       const el = document.getElementById(`tool-${t.id}`) as HTMLButtonElement | null;
       if (!el) continue;
@@ -424,8 +452,8 @@ export class App implements ToolHost, TrainUiHost {
     this.renderer.selection = insp && this.pinned ? { rect: insp.rect, color: '#f3f5fb' } : null;
     this.inspectOverlay = { highlights: insp?.extraHighlights ?? [] };
     const key = tile ? `${tile[0]},${tile[1]},${this.pinned ? 1 : 0}` : 'none';
-    // Station cargo changes daily.
-    if (insp?.kind === 'station' && this.game.day !== this.lastPanelDay) this.panelDirty = true;
+    // Station cargo and industry figures change daily.
+    if (insp && insp.kind !== 'terrain' && insp.kind !== 'track' && this.game.day !== this.lastPanelDay && !el.matches(':hover')) this.panelDirty = true;
     this.lastPanelDay = this.game.day;
     if (key === this.lastPanelKey && !this.panelDirty) return;
     this.lastPanelKey = key;
@@ -450,13 +478,38 @@ export class App implements ToolHost, TrainUiHost {
         ${this.pinned ? `<button class="icon-btn" id="unpin" aria-label="Unpin" data-tip="Unpin" data-key="Esc">${icon('close')}</button>` : ''}
       </div>
       ${insp.html}
-      ${insp.stationId !== undefined && this.game.world.stations[insp.stationId] ? stationEconomyHtml(this.game, this.game.world.stations[insp.stationId]!) : ''}`;
+      ${this.inspectionExtras(insp)}`;
+    const st = insp.stationId !== undefined ? this.game.world.stations[insp.stationId] : null;
+    if (st) bindImprovements(el, this, st);
+    bindIndustry(el, this);
     document.getElementById('unpin')?.addEventListener('click', () => (this.pinned = null));
     el.querySelector<HTMLElement>('[data-act="newtrain"]')?.addEventListener('click', (ev) => {
       const sid = Number((ev.currentTarget as HTMLElement).dataset.station);
       const other = this.game.world.liveStations().find((s) => s.id !== sid);
       openTrainDialog(this, undefined, other ? [sid, other.id] : undefined);
     });
+  }
+
+  /** Economy sections appended to the inspector card. */
+  private inspectionExtras(insp: Inspection): string {
+    const g = this.game;
+    const st = insp.stationId !== undefined ? g.world.stations[insp.stationId] : null;
+    if (st) return stationEconomyHtml(g, st) + stationDemandHtml(g, st) + improvementsHtml(g, st);
+    if (insp.industryId !== undefined) return industryEconomyHtml(g, g.world.industries[insp.industryId]);
+    if (insp.cityId !== undefined) return townGrowthHtml(g, g.world.cities[insp.cityId]);
+    return '';
+  }
+
+  private newsTimer: number | null = null;
+
+  /** Show a headline in the top-bar ticker for a while. */
+  private showNews(text: string, tone: number): void {
+    const el = $('#news');
+    el.textContent = text;
+    el.className = `news show ${tone > 0 ? 'good' : tone < 0 ? 'bad' : ''}`;
+    el.title = text;
+    if (this.newsTimer !== null) clearTimeout(this.newsTimer);
+    this.newsTimer = window.setTimeout(() => el.classList.remove('show'), 12000);
   }
 
   // -------------------------------------------------------------------------------------

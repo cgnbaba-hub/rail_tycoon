@@ -69,6 +69,15 @@ You chair a new railroad with $1,000,000.
 5. Watch the money roll in (`+$` pop-ups), keep an eye on breakdowns and old engines, and
    upgrade or duplicate your best trains.
 
+**The economy.** Each delivery lowers what a station pays for that cargo for a few weeks —
+spread your trains over several destinations. The chip in the top bar shows the economic
+state (Boom … Panic) and *business confidence*: when it starts to move, the economy will
+follow within months (click it for the economic report and news). Towns grow faster when you
+carry their passengers and bring the goods they demand; growing towns demand more. Station
+panels sell improvements (hotel, post office, water tower, maintenance shop, …); the train
+dialog offers a caboose and dining car as extras. In the Expert economy you can buy
+industries from their info panel.
+
 Single track carries one train per block between stations; double track lets trains pass
 anywhere. Steep grades slow heavy trains to a crawl. Pause any time — building works while
 paused, and construction can be undone for a full refund for a week of game time.
@@ -76,7 +85,8 @@ paused, and construction can be undone for a full refund for a week of game time
 ## Project layout
 
 ```
-src/sim/     deterministic simulation (no DOM): rng, noise, world, mapgen, time, game
+src/sim/     deterministic simulation (no DOM): rng, noise, world, mapgen, time, track,
+             construction, trains, economy, cycle, growth, company, game
 src/render/  palette, iso projection, camera, software rasterizer, chunk renderer
 src/ui/      DOM HUD, inspector, minimap, dialogs, runtime-generated pixel font
 src/data/    JSON data: cargo, industries, buildings, mapgen, names, time

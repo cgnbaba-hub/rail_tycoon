@@ -13,11 +13,37 @@ import {
   type Building,
   type Industry,
 } from '../sim/world';
-import { rotatedSize, toView, viewToTile, type Rot } from './iso';
+import { rotatedSize, toView, vecToView, viewToTile, type Rot } from './iso';
 import { DARKER, LIGHTER, PAL, colorIndex } from './palette';
 import { viewCornerHeights } from './pick';
 import { PixelBuffer, blitSprite, drawLine, fillPolygon, plot, rampPaint, solid, type Paint } from './raster';
 import { SPRITES } from './sprites';
+
+type PalName = keyof typeof PAL;
+interface ImprovementLook {
+  r: number;
+  h: number;
+  wall: PalName;
+  roof: PalName;
+  roofType: 'flat' | 'ridgeRx' | 'pyramid';
+  roofH: number;
+  windows?: boolean;
+  stilts?: boolean;
+}
+
+/** How each station improvement looks (purely cosmetic). */
+const IMPROVEMENT_LOOKS: Record<string, ImprovementLook> = {
+  water_tower: { r: 0.09, h: 0, wall: 'rust', roof: 'slate', roofType: 'pyramid', roofH: 1, stilts: true },
+  sand_house: { r: 0.08, h: 0.5, wall: 'sand', roof: 'loam', roofType: 'pyramid', roofH: 1 },
+  maintenance_shop: { r: 0.13, h: 0.8, wall: 'brick', roof: 'slate', roofType: 'ridgeRx', roofH: 1 },
+  roundhouse: { r: 0.14, h: 0.7, wall: 'stone', roof: 'shale', roofType: 'flat', roofH: 0 },
+  hotel: { r: 0.12, h: 1.6, wall: 'cream', roof: 'tile', roofType: 'pyramid', roofH: 1.2, windows: true },
+  restaurant: { r: 0.1, h: 0.7, wall: 'wheat', roof: 'oxblood', roofType: 'ridgeRx', roofH: 1, windows: true },
+  post_office: { r: 0.1, h: 0.8, wall: 'teal', roof: 'night', roofType: 'pyramid', roofH: 1 },
+  warehouse: { r: 0.13, h: 0.8, wall: 'loam', roof: 'rust', roofType: 'ridgeRx', roofH: 1 },
+  cold_storage: { r: 0.11, h: 0.8, wall: 'bone', roof: 'fog', roofType: 'flat', roofH: 0 },
+  livestock_pens: { r: 0.13, h: 0.25, wall: 'soil', roof: 'grass', roofType: 'flat', roofH: 0 },
+};
 
 /** Chunk edge length in tiles (view space). */
 export const CHUNK = 16;
@@ -358,7 +384,14 @@ class ChunkPainter {
     const occ = world.occupant[ti];
     const node = world.track.getIdx(ti);
     if (node && node.kind !== NODE_TUNNEL) {
-      if (node.station >= 0) this.drawStationTile(ti, node);
+      if (node.station >= 0) {
+        // Improvements stand across the track from the station building: paint them first
+        // when that side faces away from the viewer.
+        const behind = this.improvementsBehind(node);
+        if (behind) this.drawImprovements(ti, node);
+        this.drawStationTile(ti, node);
+        if (!behind) this.drawImprovements(ti, node);
+      }
       else if (node.kind === NODE_GROUND && bitCount(node.conn) === 1) this.drawBufferStop(ti, node);
       if (node.kind === NODE_GROUND) return;
     }
@@ -618,6 +651,47 @@ class ChunkPainter {
       const [wx0, wy0, wx1, wy1] = this.viewRect(tx0 - 0.08, ty0 - 0.08, tx0 + 0.08, ty0 + 0.08);
       this.box(wx0, wy0, wx1, wy1, z, z + L.tower / 4, wall, PAL.slate, 'pyramid', 1.5, PAL.cream);
     }
+  }
+
+  private improvementsBehind(node: TrackNode): boolean {
+    const st = this.world.stations[node.station];
+    if (!st) return false;
+    const perp: [number, number] = st.axis === 'x' ? [0, -st.side] : [-st.side, 0];
+    const [vx, vy] = vecToView(perp[0], perp[1], this.rot);
+    return vx + vy < 0;
+  }
+
+  /** Small outbuildings for station improvements, in slots across the track from the station building. */
+  private drawImprovements(i: number, node: TrackNode): void {
+    const st = this.world.stations[node.station];
+    if (!st?.improvements?.length || this.tw < 16) return;
+    const k = st.tiles.indexOf(i);
+    const [cx, cy] = this.center(i);
+    const along: [number, number] = st.axis === 'x' ? [1, 0] : [0, 1];
+    const perp: [number, number] = st.axis === 'x' ? [0, -st.side] : [-st.side, 0];
+    const SLOTS = [-0.3, 0, 0.3];
+    // Back-to-front within the tile.
+    const [ax, ay] = vecToView(along[0], along[1], this.rot);
+    const order = st.improvements.map((id, n) => ({ id, n })).filter(({ n }) => Math.floor(n / SLOTS.length) === k);
+    order.sort((p, q) => (SLOTS[p.n % SLOTS.length] - SLOTS[q.n % SLOTS.length]) * (ax + ay));
+    order.forEach(({ id, n }) => {
+      const look = IMPROVEMENT_LOOKS[id];
+      if (!look) return;
+      const a = SLOTS[n % SLOTS.length];
+      const px = cx + along[0] * a + perp[0] * 0.4;
+      const py = cy + along[1] * a + perp[1] * 0.4;
+      const r = look.r;
+      const [vx0, vy0, vx1, vy1] = this.viewRect(px - r, py - r, px + r, py + r);
+      const z = node.z;
+      if (look.stilts) {
+        // Water tower: a tank on legs.
+        this.box(vx0, vy0, vx1, vy1, z + 0.9, z + 1.6, PAL[look.wall], PAL[look.roof], 'pyramid', 1, -1);
+        const [lx0, ly0, lx1, ly1] = this.viewRect(px - 0.02, py - 0.02, px + 0.02, py + 0.02);
+        this.box(lx0, ly0, lx1, ly1, z, z + 0.9, PAL.loam, PAL.loam, 'flat', 0, -1);
+      } else {
+        this.box(vx0, vy0, vx1, vy1, z, z + look.h, PAL[look.wall], PAL[look.roof], look.roofType, look.roofH, look.windows ? PAL.gold : -1);
+      }
+    });
   }
 
   // -- decorations ------------------------------------------------------------------------

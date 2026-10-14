@@ -106,13 +106,16 @@ same number of output loads next month (up to `rate`); in the Basic model they a
 
 **Demand**: towns by size class (`townDemand`), industries their inputs.
 
-**Revenue per load** = `(base + perMile · miles) · timeFactor · demandFactor · economyFactor`
+**Revenue per load** = `(base + perMile · miles) · timeFactor · demandFactor · economyFactor · bonusFactor`
 - miles = straight-line tiles between origin and destination station × 0.25
 - `timeFactor = max(minFactor, 0.5^(late / halfLife))`, `late = max(0, days − idealDays − graceDays)`,
   `idealDays` = time a 40 mph train needs; half-lives: fast 8 d (passengers, mail, milk),
   medium 18 d, slow 45 d, none for bulk; floor 0.25; grace 2 days.
-- `demandFactor` = 1 when the station demands the cargo, else the model factor
-  (Basic 0.75, Advanced 0.5, Expert 0.1). `economyFactor` = 1 until M4's economic cycle.
+- `demandFactor` = (1 when the station demands the cargo, else the model factor: Basic 0.75,
+  Advanced 0.5, Expert 0.1) × the station's current **demand level** for that cargo.
+- `economyFactor` = economic-cycle revenue factor × cargo price level (Expert only).
+- `bonusFactor` = destination station improvements (hotel, post office, …) × consist extras
+  (dining car: passengers × 1.15; caboose: freight × 1.08 — one of each counts).
 
 **Loading**: dwell `minDwellHours (4) + hoursPerLoad (3) × loads moved`; "wait for full load"
 re-checks for cargo up to `maxWaitDays` (60).
@@ -129,9 +132,70 @@ re-checks for cargo up to `maxWaitDays` (60).
 - resale: engine `price × max(0.15, 0.75 − 0.04 · age)` + cars at half price; upgrades trade the
   old engine in at that value.
 
-Reference check (`npx vite-node scripts/balance.ts -- 7`): two cities ~10 miles apart, one
-4-car Columbia: ≈ $180–240k revenue/year, ≈ $10k running costs, payback of track + train
-in ≈ 1.5–2.5 years.
+Reference check (`npx vite-node scripts/balance.ts -- 7`, also seeds 3, 11): two cities
+~10 miles apart, one 4-car Columbia: ≈ $150–240k revenue/year, ≈ $10k running costs, payback
+of track + train in ≈ 1.8–3 years (with M4 saturation and a random economic cycle; a single
+train leaves demand at 85–99 %).
+
+## Economy (`economy.json`, M4)
+
+**Demand saturation** (`saturation`): every station keeps a demand level per accepted cargo
+(1 = full price). A delivery of `n` loads lowers it by
+`dropPerCapacity (0.12) × model.saturation × n / capacity`, floor 0.15. It recovers towards 1
+with a half-life of `recoveryHalfLifeDays` (45 d). `capacity` (loads/month the catchment
+absorbs) = covered population / 1000 × `townCapacityPerThousand` (passengers 6, mail 2.5,
+food 1.6, goods 1.4, milk 1.2, other 1) + Σ consuming industries `rate × 1.5`, at least 3.
+Model saturation strength: Basic 0.6, Advanced 1.0, Expert 1.3.
+Steady state for a constant flow `d` loads/month: `L = 1 − drop(d) / (1 − 0.5^(30.4/45))`;
+the train estimate uses `min(current level, L)` so a planned train already accounts for the
+prices it will push down. A town of 6,000 receiving its partner town's passengers settles
+around 85–90 %.
+
+**Economic cycle** (`cycle`): Boom / Prosperity / Normal / Recession / Panic with revenue
+×1.15 / 1.07 / 1.00 / 0.88 / 0.75 and town growth ×1.6 / 1.25 / 1 / 0.5 / 0. Each state lasts
+8–30 months; the next state is drawn from the `transitions` weights when a state begins.
+**Leading indicator:** business confidence (0–100) sits at the state's level (88 / 70 / 55 /
+35 / 15, ±3 noise) and, 3–6 months before a change, moves linearly towards the coming state's
+level while headlines hint at the direction. The top bar shows state, confidence and its
+3-month trend.
+
+**Cargo prices** (Expert only, `priceLevels`): each cargo's index random-walks monthly
+(`p ← p·(1 + U(−0.05, 0.05)) + (1 − p)·0.12`), clamped to [0.65, 1.45].
+
+**Town growth** (`cityGrowth`, monthly): annual rate =
+`(0.004 + 0.05 · service + 0.04 · supplied) × cycle growth factor`, where
+`service = min(1, passengers & mail picked up / town supply / 0.6)` and
+`supplied = min(1, demanded freight delivered / (2 loads per 1,000 people per year))`.
+Towns add up to 3 buildings a month on free flat lots off the street grid (never on track),
+move up a size class at the class's `popMin` (unlocking new demands) and then attract a new
+processing industry with 80 % chance.
+
+**Raw industry growth** (`industryGrowth`, yearly): picking up ≥ 60 % of the output grows the
+production level by 12 % (max 250 %); < 20 % shrinks it by 6 % (min 50 %); sites without a
+station drift back to 100 %.
+
+**Industry ownership** (Expert, `ownership`): owner's profit/month = output × cargo base × 0.6
+× economy factor − $1,500/12. Price = 5 × yearly profit valued at no less than 40 % of
+full-capacity profit, at least $25,000; sold back for 80 %. A fed processing plant (12 loads
+of goods) earns ≈ $30k/year, roughly a 2-year payback; raw sites ≈ 5 years.
+
+**Station improvements** (`improvements`, effects stack multiplicatively):
+
+| Improvement | Cost | Upkeep/yr | Effect |
+|---|---|---|---|
+| Water tower | $15,000 | $500 | dwell × 0.7 |
+| Sand house | $12,000 | $400 | adhesion × 1.2 for the next leg |
+| Maintenance shop | $40,000 | $2,000 | breakdown chance × 0.5 for 60 days after a stop |
+| Roundhouse (needs shop) | $60,000 | $3,000 | maintenance × 0.7, breakdowns × 0.8 for 60 days |
+| Hotel | $50,000 | $1,500 | passenger revenue × 1.2, passenger supply × 1.15 |
+| Restaurant | $25,000 | $800 | passenger revenue × 1.1 |
+| Post office | $25,000 | $800 | mail revenue and supply × 1.25 |
+| Warehouse | $35,000 | $1,200 | waiting-cargo cap × 2 |
+| Cold storage | $40,000 | $1,500 | +4 grace days for perishables loaded here; food & milk revenue × 1.15 |
+| Livestock pens | $20,000 | $600 | livestock supply × 1.25, revenue × 1.1 |
+
+Revenue boosts apply at the *destination* station. Caboose: freight × 1.08, breakdowns × 0.85;
+dining car: passengers × 1.15 (cars that carry nothing).
 
 ## Rendering constants (code, visual only)
 - Light direction (view space) `(-0.6, 0.25, 0.76)`, height-to-tile ratio `Z_UNIT = 0.9`,

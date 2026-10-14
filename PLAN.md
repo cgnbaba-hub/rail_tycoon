@@ -38,7 +38,7 @@ tests/      Vitest specs for sim + pure render math
 | M1 | Engine & map ✅ | New-game dialog (seed, size, water, hills, forests, cities, start year). Procedural 64–256² map with corner heightmap, coasts, rivers, forests, mountains, named cities and ~20 industry types rendered in pixel-art iso. Pan (right/middle drag, WASD), wheel zoom (4 levels), Q/E rotate, minimap, hover/inspect panel, date + pause + 1/2/4/8× speed. |
 | M2 | Track & stations ✅ | Track tool with A* auto-pathing, slope % + cost preview, single/double track, bridges (3 types), tunnels, bulldoze, undo stack. Stations (3 sizes) with catchment overlay + highlighted industries. Company cash. |
 | M3 | Trains & cargo ✅ | Engine data (early eras), consists, route editor, movement with gradient physics, block signalling / passing sidings on the track graph, load/unload, revenue formula (+ revenue estimate & payback in the track preview), fuel/maintenance, track maintenance, breakdowns, bridge speed/weight limits. |
-| M4 | Economy | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
+| M4 | Economy ✅ | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
 | M5 | Finance | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
 | M7 | Improved UI | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
@@ -96,3 +96,16 @@ revenue formula (M3).
 
 Deferred: caboose/dining-car bonuses and station improvements (M4), demand saturation and
 economic cycle factors in the revenue formula (M4), transfers between trains (M7 option).
+
+## M4 detailed checklist
+
+- [x] Demand saturation per station & cargo with recovery (half-life), steady-state aware estimates
+- [x] Three economic models: undemanded factor, saturation strength, processors need inputs, Expert price levels & industry ownership
+- [x] 5-state economic cycle with transition table, durations, business-confidence leading indicator and news headlines
+- [x] Revenue formula: × demand level × economy (cycle × price level) × bonuses
+- [x] Town growth from natural rate, passenger service and delivered goods; new buildings on free lots; size classes unlock demands; new industries on class-up
+- [x] Raw industries grow with good service and shrink when neglected; processing chains
+- [x] Station improvements (water tower, sand house, maintenance shop, roundhouse, hotel, restaurant, post office, warehouse, cold storage, livestock pens) with upkeep and visuals
+- [x] Caboose and dining car bonuses
+- [x] UI: economy chip + news ticker + economic report, station demand gauges with history and recovery time, improvements panel, industry business panel (buy/sell in Expert), town growth panel, last-delivery revenue breakdown in the train panel
+- [x] Tests: saturation & recovery, steady state, cycle determinism / warnings / leading indicator, models, price bounds, ownership, town growth (served vs. unserved), building placement, class-up, undo keeps growth, improvements, consist bonuses

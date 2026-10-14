@@ -54,6 +54,10 @@ export interface City {
   /** Radius (tiles) of the built-up area. */
   radius: number;
   buildingIds: number[];
+  /** Last month's annual growth rate, passenger service and freight supply scores (0–1). */
+  growth?: number;
+  service?: number;
+  supplied?: number;
 }
 
 export interface Building {

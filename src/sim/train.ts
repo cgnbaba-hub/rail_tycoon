@@ -1,10 +1,10 @@
 import { CARGO_BY_ID, CAR_BY_ID, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, ENGINES, TIME, type EngineDef } from '../data';
 import type { Company } from './company';
 import { gradePercent } from './construction';
-import { quoteRevenue, type Economy, type RevenueQuote } from './economy';
+import type { Economy, RevenueQuote } from './economy';
 import type { Rng } from './rng';
 import { findTrainPath, tileDistance } from './routing';
-import type { Station } from './station';
+import { stationEffects, type Station } from './station';
 import { NODE_BRIDGE, NODE_GROUND, NODE_TUNNEL, bitCount, canTurn, stepLength } from './track';
 import type { World } from './world';
 
@@ -93,6 +93,48 @@ export interface Train {
   /** True while a grade holds the train below 5 mph. */
   struggling: boolean;
   stats: TrainStats;
+  /** Serviced at a maintenance shop / roundhouse: buffs last until `until` (tick). */
+  service?: { until: number; breakdown: number; maintenance: number };
+  /** Sand taken on at a sand house: adhesion multiplier for the current leg. */
+  sand?: number;
+  /** Most recent delivery, for the train panel's revenue breakdown. */
+  lastDelivery?: { station: number; tick: number; quotes: RevenueQuote[] };
+}
+
+/** Pseudo-cargo ids for cars that carry nothing but give a bonus. */
+export const SPECIAL_CARS: Record<string, string> = { '@caboose': 'caboose', '@dining': 'dining' };
+
+export function isSpecialCar(cargo: string): boolean {
+  return cargo in SPECIAL_CARS;
+}
+
+export interface ConsistBonus {
+  /** Revenue multiplier for freight (all but people). */
+  freight: number;
+  /** Revenue multiplier for passengers & troops. */
+  passengers: number;
+  breakdown: number;
+}
+
+/** Bonuses from caboose / dining car (each counts once per train). */
+export function consistBonus(cars: ReadonlyArray<Pick<Car, 'type'>>): ConsistBonus {
+  const out: ConsistBonus = { freight: 1, passengers: 1, breakdown: 1 };
+  for (const type of new Set(cars.map((c) => c.type))) {
+    const b = CAR_BY_ID.get(type)?.bonus;
+    if (!b) continue;
+    out.freight *= b.freight ?? 1;
+    out.passengers *= b.passengers ?? 1;
+    out.breakdown *= b.breakdown ?? 1;
+  }
+  return out;
+}
+
+/** The consist revenue multiplier that applies to one cargo. */
+export function cargoBonus(bonus: ConsistBonus, cargo: string): number {
+  const def = CARGO_BY_ID.get(cargo);
+  if (!def) return 1;
+  if (def.group !== 'people') return bonus.freight;
+  return cargo === 'mail' ? 1 : bonus.passengers;
 }
 
 export function newStats(): TrainStats {
@@ -106,7 +148,7 @@ export function engineDef(t: Train): EngineDef {
 }
 
 export function carForCargo(cargo: string): string {
-  return CARGO_BY_ID.get(cargo)?.car ?? 'box';
+  return SPECIAL_CARS[cargo] ?? CARGO_BY_ID.get(cargo)?.car ?? 'box';
 }
 
 // ---------------------------------------------------------------------------------------
@@ -123,10 +165,10 @@ export function trainLength(t: Pick<Train, 'cars'>): number {
   return PH.engineLength + t.cars.length * PH.carLength;
 }
 
-/** Tractive effort (lbf): power-limited, capped by adhesion. */
-export function tractiveEffort(engine: EngineDef, mph: number): number {
+/** Tractive effort (lbf): power-limited, capped by adhesion (× `sand`, see sand house). */
+export function tractiveEffort(engine: EngineDef, mph: number, sand = 1): number {
   const powerLimited = (engine.power * 375) / Math.max(mph, 3);
-  const adhesion = engine.adhesion * 2000 * PH.adhesionCoefficient;
+  const adhesion = engine.adhesion * 2000 * PH.adhesionCoefficient * sand;
   return Math.min(powerLimited, adhesion);
 }
 
@@ -137,16 +179,16 @@ export function resistance(tons: number, mph: number, gradePct: number): number 
 }
 
 /** Speed change over one tick (mph), before speed limits. */
-export function accelerationPerTick(engine: EngineDef, tons: number, mph: number, gradePct: number): number {
-  const net = tractiveEffort(engine, mph) - resistance(tons, mph, gradePct);
+export function accelerationPerTick(engine: EngineDef, tons: number, mph: number, gradePct: number, sand = 1): number {
+  const net = tractiveEffort(engine, mph, sand) - resistance(tons, mph, gradePct);
   const mphPerSecond = (net * 0.010968) / tons;
   return mphPerSecond * PH.physicsSecondsPerTick;
 }
 
 /** Highest steady speed (mph) on a grade, capped at the engine's top speed. */
-export function balanceSpeed(engine: EngineDef, tons: number, gradePct: number): number {
+export function balanceSpeed(engine: EngineDef, tons: number, gradePct: number, sand = 1): number {
   for (let v = engine.topSpeed; v >= 1; v -= 0.5) {
-    if (tractiveEffort(engine, v) >= resistance(tons, v, gradePct)) return v;
+    if (tractiveEffort(engine, v, sand) >= resistance(tons, v, gradePct)) return v;
   }
   return 0;
 }
@@ -588,7 +630,8 @@ export class TrainSystem {
     for (const t of this.trains) {
       if (t.state !== 'running' && t.state !== 'signal') continue;
       const e = engineDef(t);
-      if (this.host.rng.next() >= breakdownChance(e, engineAgeYears(t, this.host.tick))) continue;
+      const factor = consistBonus(t.cars).breakdown * this.serviceFx(t).breakdown;
+      if (this.host.rng.next() >= breakdownChance(e, engineAgeYears(t, this.host.tick)) * factor) continue;
       const b = ECONOMY.breakdowns;
       const days = this.host.rng.int(b.repairDays[0], b.repairDays[1]);
       const cost = Math.round(e.price * b.repairCostFraction);
@@ -607,8 +650,14 @@ export class TrainSystem {
     for (const t of this.trains) {
       const e = engineDef(t);
       const age = engineAgeYears(t, this.host.tick);
-      this.charge(t, 'maintenance', (e.maintenance / 12) * (1 + ECONOMY.engineWear.maintenancePerYearOfAge * age));
+      const base = (e.maintenance / 12) * (1 + ECONOMY.engineWear.maintenancePerYearOfAge * age);
+      this.charge(t, 'maintenance', base * this.serviceFx(t).maintenance);
     }
+  }
+
+  /** Active maintenance-shop buffs (1 = none). */
+  serviceFx(t: Train): { breakdown: number; maintenance: number } {
+    return t.service && t.service.until > this.host.tick ? t.service : { breakdown: 1, maintenance: 1 };
   }
 
   yearly(): void {
@@ -651,7 +700,7 @@ export class TrainSystem {
     let vmax = e.topSpeed;
     const bridge = this.segBridge(t);
     if (bridge) vmax = Math.min(vmax, tons > bridge.weightLimit ? PH.overweightBridgeMph : bridge.speedLimit);
-    let v = t.speed + accelerationPerTick(e, tons, t.speed, grade);
+    let v = t.speed + accelerationPerTick(e, tons, t.speed, grade, t.sand ?? 1);
     t.struggling = v < 5 && grade > 0;
     // Trains never stall completely on a grade; they crawl.
     v = Math.max(v, Math.min(3, vmax));
@@ -793,12 +842,18 @@ export class TrainSystem {
     this.releaseDue(t);
     const stop = t.route[t.stop];
     let handled = 0;
+    t.sand = undefined;
+    const fx = stationEffects(st);
     if (st && stop && st.id === stop.station) {
       if (!spawned) handled += this.unload(t, st);
       handled += this.load(t, st, stop);
+      if (fx.breakdown < 1 || fx.maintenance < 1) {
+        t.service = { until: this.host.tick + ECONOMY.serviceDays * TIME.ticksPerDay, breakdown: fx.breakdown, maintenance: fx.maintenance };
+      }
+      if (fx.adhesion > 1) t.sand = fx.adhesion;
     }
     const L = ECONOMY.loading;
-    t.dwellUntil = this.host.tick + L.minDwellHours + L.hoursPerLoad * handled;
+    t.dwellUntil = this.host.tick + Math.round((L.minDwellHours + L.hoursPerLoad * handled) * fx.dwell);
   }
 
   private routeDemands(t: Train, cargo: string, except: number): boolean {
@@ -808,19 +863,25 @@ export class TrainSystem {
   private unload(t: Train, st: Station): number {
     const econ = this.host.economy;
     const quotes = new Map<string, RevenueQuote>();
+    const bonus = consistBonus(t.cars);
     let n = 0;
     let total = 0;
     for (const car of t.cars) {
-      if (car.loads <= 0 || car.origin === st.id) continue;
+      if (car.loads <= 0 || car.origin === st.id || isSpecialCar(car.cargo)) continue;
       const demanded = econ.accepts(st.id, car.cargo);
       if (!demanded && this.routeDemands(t, car.cargo, st.id)) continue;
       const origin = this.world.stations[car.origin];
       const dist = origin ? tileDistance(this.world, stopTile(origin), stopTile(st)) : 0;
       const days = (this.host.tick - car.loadedTick) / TIME.ticksPerDay;
-      const q = quoteRevenue(car.cargo, car.loads, dist, days, demanded, econ.model);
+      const q = econ.quote(st.id, car.cargo, car.loads, dist, days, { bonus: cargoBonus(bonus, car.cargo), graceBonus: stationEffects(origin).fresh });
       const prev = quotes.get(car.cargo);
       if (prev) {
-        prev.loads += q.loads;
+        // average the factors over the cars of this cargo
+        const w = prev.loads + q.loads;
+        prev.timeFactor = (prev.timeFactor * prev.loads + q.timeFactor * q.loads) / w;
+        prev.transitDays = (prev.transitDays * prev.loads + q.transitDays * q.loads) / w;
+        prev.demandFactor = (prev.demandFactor * prev.loads + q.demandFactor * q.loads) / w;
+        prev.loads = w;
         prev.total += q.total;
       } else quotes.set(car.cargo, q);
       total += q.total;
@@ -832,7 +893,10 @@ export class TrainSystem {
       car.loads = 0;
       car.origin = -1;
     }
-    if (n > 0) this.host.emit({ type: 'delivery', train: t.id, station: st.id, revenue: total, quotes: [...quotes.values()] });
+    if (n > 0) {
+      t.lastDelivery = { station: st.id, tick: this.host.tick, quotes: [...quotes.values()] };
+      this.host.emit({ type: 'delivery', train: t.id, station: st.id, revenue: total, quotes: [...quotes.values()] });
+    }
     return n;
   }
 
@@ -854,7 +918,7 @@ export class TrainSystem {
         if (!other || other.id === st.id) continue;
         const dist = tileDistance(this.world, stopTile(st), stopTile(other));
         const demanded = econ.accepts(other.id, cargo);
-        const q = quoteRevenue(cargo, 1, dist, 0, demanded, econ.model);
+        const q = econ.quote(other.id, cargo, 1, dist, 0);
         if (demanded) {
           value = q.total;
           break;
@@ -874,7 +938,7 @@ export class TrainSystem {
     let n = 0;
     const taken = new Map<string, number>();
     for (const car of t.cars) {
-      if (car.loads > 0) continue;
+      if (car.loads > 0 || isSpecialCar(car.cargo)) continue;
       if (stop.load === 'auto') {
         const best = this.bestCargo(t, st, taken);
         if (best) {
@@ -897,7 +961,7 @@ export class TrainSystem {
     if (this.host.tick < t.dwellUntil) return;
     const stop = t.route[t.stop];
     const st = this.stationAt(t.path[0]);
-    if (stop?.waitFull && st && st.id === stop.station && t.cars.some((c) => c.loads === 0)) {
+    if (stop?.waitFull && st && st.id === stop.station && t.cars.some((c) => c.loads === 0 && !isSpecialCar(c.cargo))) {
       const waited = (this.host.tick - t.loadingSince) / TIME.ticksPerDay;
       if (waited < ECONOMY.loading.maxWaitDays) {
         // Check for new cargo a few times a day.

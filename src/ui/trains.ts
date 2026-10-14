@@ -10,12 +10,15 @@ import {
   engineDef,
   engineTradeIn,
   enginesAvailable,
+  isSpecialCar,
   resaleValue,
+  SPECIAL_CARS,
   stationPlatforms,
   type RouteStop,
   type Train,
 } from '../sim/train';
 import { esc, fmtInt } from './dom';
+import { cargoChip, lastDeliveryHtml } from './economy';
 import { fmtMoney } from './tools';
 
 export interface TrainUiHost {
@@ -36,6 +39,7 @@ const STATE_LABEL: Record<Train['state'], string> = {
 };
 
 function chip(cargo: string, loaded = true): string {
+  if (isSpecialCar(cargo)) return cargoChip(cargo);
   const c = CARGO_BY_ID.get(cargo);
   if (!c) return esc(cargo);
   const color = PALETTE[c.color as PaletteName] ?? PALETTE.bone;
@@ -97,6 +101,7 @@ export function trainPanelHtml(game: Game, t: Train): string {
     ${row('Last year', fmtMoney(last))}
     ${row('Revenue / costs', `${fmtMoney(t.stats.revenue)} / ${fmtMoney(t.stats.costs)}`)}
     ${row('Loads delivered', fmtInt(t.stats.deliveries))}
+    ${lastDeliveryHtml(game, t)}
     ${row('Engine age', `${years(age)} of ~${e.lifespan} yr`)}
     ${row('Reliability', `${Math.round(e.reliability * 100)}% · ${t.stats.breakdowns} breakdown${t.stats.breakdowns === 1 ? '' : 's'}`)}
     ${row('Resale value', fmtMoney(resaleValue(t, game.tick)))}
@@ -243,7 +248,7 @@ function estimateHtml(est: TrainEstimate, game: Game): string {
       ${row('Profit / yr', `<span class="${est.profitPerYear < 0 ? 'bad' : ''}">${fmtMoney(est.profitPerYear)}</span>`, 'total')}
       ${row('Payback (train)', pay)}
     </div>
-    <p class="hint">Estimate from current supply, demand and grades: revenue = (base + per-mile × miles) × time factor × demand factor per load.</p>`;
+    <p class="hint">Estimate from current supply, demand and grades: revenue = (base + per-mile × miles) × time × demand (incl. saturation at the steady rate this train delivers) × economy × bonuses, per load.</p>`;
 }
 
 export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStations?: number[]): void {
@@ -292,7 +297,15 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
           <button class="btn small" data-del="${i}" ${draft.route.length <= 2 ? 'disabled' : ''} aria-label="Remove stop">×</button></li>`,
       )
       .join('');
-    const cargoOpts = (sel: string) => cargoOptions.map((c) => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${esc(c.name)} (${esc(CAR_BY_ID.get(c.car)?.name ?? c.car)})</option>`).join('');
+    const specials = Object.entries(SPECIAL_CARS).map(([id, car]) => {
+      const def = CAR_BY_ID.get(car);
+      const b = def?.bonus ?? {};
+      const what = [b.freight ? `freight +${Math.round((b.freight - 1) * 100)}%` : '', b.passengers ? `passengers +${Math.round((b.passengers - 1) * 100)}%` : '', b.breakdown ? `breakdowns −${Math.round((1 - b.breakdown) * 100)}%` : ''].filter(Boolean).join(', ');
+      return { id, label: `${def?.name ?? car} (${what})` };
+    });
+    const cargoOpts = (sel: string) =>
+      cargoOptions.map((c) => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${esc(c.name)} (${esc(CAR_BY_ID.get(c.car)?.name ?? c.car)})</option>`).join('') +
+      `<optgroup label="Extras (one counts per train)">${specials.map((x) => `<option value="${x.id}"${x.id === sel ? ' selected' : ''}>${esc(x.label)}</option>`).join('')}</optgroup>`;
     const carRows = draft.cars
       .map((c, i) => `<li><span class="num">${i + 1}</span><select data-car="${i}">${cargoOpts(c)}</select><button class="btn small" data-delcar="${i}" ${draft.cars.length <= 1 ? 'disabled' : ''} aria-label="Remove car">×</button></li>`)
       .join('');
@@ -374,7 +387,7 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
       render();
     });
     act('addcar', () => {
-      draft.cars.push(draft.cars[draft.cars.length - 1] ?? 'passengers');
+      draft.cars.push([...draft.cars].reverse().find((c) => !isSpecialCar(c)) ?? 'passengers');
       render();
     });
     act('suggest', () => {
