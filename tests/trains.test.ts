@@ -355,3 +355,24 @@ describe('signalling under load', () => {
     g.trains.trains.forEach((t, i) => expect(t.odometer).toBeGreaterThan(before[i] + 30));
   });
 });
+
+describe('train consist on the map', () => {
+  it('steam engines run with a tender, diesels without; every vehicle stands on track', async () => {
+    const { hasTender, visualLength } = await import('../src/sim/train');
+    expect(hasTender('columbia')).toBe(true);
+    expect(hasTender('streamliner')).toBe(false);
+    expect(visualLength({ engine: 'columbia', cars: [] })).toBeGreaterThan(visualLength({ engine: 'streamliner', cars: [] }));
+    const { g, a, b, w } = line();
+    // A train placed in a station stands along the real track behind it, not over the grass.
+    const t = g.buyTrain('columbia', ['passengers', 'passengers', 'mail', 'coal', 'coal'], route(b.id, a.id)).train!;
+    const kinds = g.trains.vehiclePositions(t).map((v) => v.kind);
+    expect(kinds).toEqual(['engine', 'tender', 'car', 'car', 'car', 'car', 'car']);
+    const onTrack = () => g.trains.vehiclePositions(t).every((v) => w.track.has(Math.floor(v.x), Math.floor(v.y)));
+    expect(onTrack()).toBe(true);
+    // In transit (well clear of the station it reversed out of) it follows the line.
+    run(g, 2);
+    expect(t.state).toBe('running');
+    expect(onTrack()).toBe(true);
+  });
+});
+

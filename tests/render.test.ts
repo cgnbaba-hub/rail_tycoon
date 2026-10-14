@@ -77,7 +77,7 @@ describe('chunk renderer', () => {
   it('renders every chunk for all rotations and zoom levels', () => {
     for (const rot of [0, 1, 2, 3] as Rot[]) {
       const [RW, RH] = rotatedSize(rot, 40, 40);
-      for (const tw of [8, 16, 32]) {
+      for (const tw of [8, 16, 32, 64]) {
         for (let cy = 0; cy < Math.ceil(RH / CHUNK); cy++) {
           for (let cx = 0; cx < Math.ceil(RW / CHUNK); cx++) {
             const { buf } = renderChunk(data, rot, tw, cx, cy, { grid: tw === 16 });
@@ -126,7 +126,7 @@ describe('chunk renderer with railways', () => {
     const data = new WorldRenderData(w);
     const rail = PALETTE_U32[PALETTE_NAMES.indexOf('fog')];
     for (const rot of [0, 1, 2, 3] as Rot[]) {
-      for (const tw of [8, 16, 32]) {
+      for (const tw of [8, 16, 32, 64]) {
         let rails = 0;
         const [RW, RH] = rotatedSize(rot, 40, 40);
         for (let cy = 0; cy < Math.ceil(RH / CHUNK); cy++) {
@@ -138,5 +138,33 @@ describe('chunk renderer with railways', () => {
         if (tw >= 16) expect(rails).toBeGreaterThan(50);
       }
     }
+  });
+});
+
+describe('train sprites', () => {
+  it('draws every vehicle in all eight directions at each zoom, palette colours only', async () => {
+    const { rasterVehicle } = await import('../src/render/trainSprites');
+    const { CARS, ENGINES } = await import('../src/data');
+    const allowed = new Set(PALETTE_U32);
+    const looks = [...ENGINES.flatMap((e) => [`engine:${e.id}`, `tender:${e.id}`]), ...CARS.map((c) => `car:${c.id}`)];
+    for (const key of looks) {
+      for (const tw of [16, 32, 64]) {
+        for (let vd = 0; vd < 8; vd++) {
+          const s = rasterVehicle({ key, load: key === 'car:hopper' ? 'night' : '' }, vd, tw);
+          expect(s.countOpaque(), `${key} ${vd} ${tw}`).toBeGreaterThan(tw / 2);
+          for (const v of s.data) if (v !== 0) expect(allowed.has(v)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('is longer than it is tall when seen from the side', async () => {
+    const { rasterVehicle } = await import('../src/render/trainSprites');
+    const s = rasterVehicle({ key: 'car:box', load: '' }, 3, 64);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) if (s.data[y * s.w + x]) {
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    }
+    expect(x1 - x0).toBeGreaterThan((y1 - y0) * 1.15);
   });
 });

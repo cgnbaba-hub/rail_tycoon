@@ -200,14 +200,15 @@ export class Renderer {
         if (v.tunnel) return;
         const [vx, vy] = vecToView(v.dx, v.dy, camera.rot);
         const vd = (((Math.round(Math.atan2(vy, vx) / (Math.PI / 4)) % 8) + 8) % 8);
-        const look = i === 0 ? { key: `engine:${t.engine}`, load: '' } : { key: `car:${t.cars[i - 1].type}`, load: loadLook(t.cars[i - 1].type, t.cars[i - 1].cargo, t.cars[i - 1].loads) };
+        const car = v.car >= 0 ? t.cars[v.car] : undefined;
+        const look = car ? { key: `car:${car.type}`, load: loadLook(car.type, car.cargo, car.loads) } : { key: `${v.kind}:${t.engine}`, load: '' };
         const sprite = vehicleSprite(look, vd, camera.tw);
         const [sx, sy] = camera.worldToScreen(v.x, v.y, v.z);
         const [rx, ry] = toView(v.x, v.y, camera.rot, W, H);
         items.push({ depth: rx + ry, sx, sy, sprite, train: t.id, engine: i === 0 });
-        this.hits.push({ train: t.id, sx, sy: sy - 4 * camera.scale });
+        this.hits.push({ train: t.id, sx, sy: sy - 4 * (camera.tw / 32) * camera.scale });
         if (i === 0 && emit && t.speed > 1 && !ENGINE_BY_ID.get(t.engine)?.look.diesel) {
-          this.puffs.push({ x: v.x + v.dx * 0.15, y: v.y + v.dy * 0.15, z: v.z + 2.6, born: time });
+          this.puffs.push({ x: v.x + v.dx * 0.2, y: v.y + v.dy * 0.2, z: v.z + 1.7, born: time });
         }
       });
     }
@@ -223,7 +224,7 @@ export class Renderer {
       if (it.engine && it.train === this.selectedTrain) {
         // Marker above the selected train's engine.
         const mx = Math.round(it.sx);
-        const my = Math.round(it.sy - (camera.tw * 0.9 + 6) * s);
+        const my = Math.round(it.sy - (camera.tw * 0.42 + 8) * s);
         this.ctx.fillStyle = PALETTE.ink;
         this.ctx.fillRect(mx - 4, my - 1, 9, 6);
         this.ctx.fillStyle = PALETTE.gold;
@@ -245,12 +246,24 @@ export class Renderer {
     for (const p of this.puffs) {
       const age = (time - p.born) / PUFF_LIFE;
       const [sx, sy] = camera.worldToScreen(p.x, p.y, p.z + age * 4);
-      const r = Math.max(1, Math.round((1 + age * 2.5) * k));
-      this.ctx.fillStyle = age < 0.4 ? PALETTE.bone : age < 0.75 ? PALETTE.fog : PALETTE.steel;
+      const r = Math.max(1, Math.round((1 + age * 2.2) * k));
       const x = Math.round(sx);
       const y = Math.round(sy);
-      this.ctx.fillRect(x - r, y - r + 1, r * 2, Math.max(1, r * 2 - 2));
-      this.ctx.fillRect(x - r + 1, y - r, Math.max(1, r * 2 - 2), r * 2);
+      const body = age < 0.4 ? PALETTE.bone : age < 0.75 ? PALETTE.fog : PALETTE.steel;
+      const rim = age < 0.4 ? PALETTE.fog : age < 0.75 ? PALETTE.steel : PALETTE.slate;
+      // A pixel disc: shaded rim on the lower right, body, small highlight.
+      this.disc(x + Math.max(1, Math.round(r / 4)), y + Math.max(1, Math.round(r / 4)), r, rim);
+      this.disc(x, y, r, body);
+      if (r >= 3 && age < 0.5) this.disc(x - Math.round(r / 3), y - Math.round(r / 3), Math.max(1, Math.round(r / 3)), PALETTE.snow);
+    }
+  }
+
+  /** Filled pixel circle (row spans, no anti-aliasing). */
+  private disc(cx: number, cy: number, r: number, color: string): void {
+    this.ctx.fillStyle = color;
+    for (let dy = -r; dy <= r; dy++) {
+      const half = Math.floor(Math.sqrt(r * r - dy * dy) + 0.35);
+      this.ctx.fillRect(cx - half, cy + dy, half * 2 + 1, 1);
     }
   }
 

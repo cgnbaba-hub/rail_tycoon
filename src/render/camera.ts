@@ -12,7 +12,8 @@ export const ZOOMS: readonly ZoomLevel[] = [
   { tw: 8, scale: 1, label: '1/4' },
   { tw: 16, scale: 1, label: '1/2' },
   { tw: 32, scale: 1, label: '1x' },
-  { tw: 32, scale: 2, label: '2x' },
+  { tw: 64, scale: 1, label: '2x' },
+  { tw: 64, scale: 2, label: '4x' },
 ];
 
 /**

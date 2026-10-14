@@ -44,7 +44,7 @@ npx vite-node scripts/stress.ts                              # 120 trains, signa
 | `I` / `Esc` | Back to Inspect (`Esc` also cancels a drag; right-click cancels too) |
 | Right / middle drag (or left drag) | Pan |
 | W A S D / arrow keys | Pan |
-| Mouse wheel, `+` / `-` | Zoom (¼×, ½×, 1×, 2×) |
+| Mouse wheel, `+` / `-` | Zoom (¼×, ½×, 1×, 2× with full detail, 4× chunky close-up) |
 | `Q` / `E` | Rotate the view 90° |
 | Hover / click | Inspect / pin a tile, town or industry (`Esc` unpins) |
 | `Space` / `P` | Pause / resume (everything stays usable while paused) |

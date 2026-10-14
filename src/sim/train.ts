@@ -9,6 +9,8 @@ import { NODE_BRIDGE, NODE_GROUND, NODE_TUNNEL, bitCount, canTurn, stepLength } 
 import type { World } from './world';
 
 const PH = ECONOMY.physics;
+const DXS = [1, 1, 0, -1, -1, -1, 0, 1];
+const DYS = [0, 1, 1, 1, 0, -1, -1, -1];
 const TICKS_PER_YEAR = TIME.ticksPerDay * 365;
 
 // ---------------------------------------------------------------------------------------
@@ -54,6 +56,19 @@ export interface Hold {
   lane: string;
   station: number;
   releaseAt: number;
+}
+
+export interface VehiclePosition {
+  x: number;
+  y: number;
+  z: number;
+  /** Unit direction the vehicle faces (towards the front of the train). */
+  dx: number;
+  dy: number;
+  tunnel: boolean;
+  kind: 'engine' | 'tender' | 'car';
+  /** Index into train.cars for kind 'car', else -1. */
+  car: number;
 }
 
 export interface TrailPoint {
@@ -161,8 +176,22 @@ export function trainTons(engine: EngineDef, cars: ReadonlyArray<Pick<Car, 'type
   return t;
 }
 
-export function trainLength(t: Pick<Train, 'cars'>): number {
+/** Steam engines run with a tender; diesels don't. */
+export function hasTender(engineId: string): boolean {
+  return !ENGINE_BY_ID.get(engineId)?.look.diesel;
+}
+
+/**
+ * Length the signalling works with (engine + cars). A steam engine's tender is drawn behind
+ * the engine on top of this and fits inside the 0.5-tile margin every block keeps.
+ */
+export function trainLength(t: Pick<Train, 'cars' | 'engine'>): number {
   return PH.engineLength + t.cars.length * PH.carLength;
+}
+
+/** Length as drawn, including the tender. */
+export function visualLength(t: Pick<Train, 'cars' | 'engine'>): number {
+  return trainLength(t) + (hasTender(t.engine) ? PH.tenderLength : 0);
 }
 
 /** Tractive effort (lbf): power-limited, capped by adhesion (× `sand`, see sand house). */
@@ -592,18 +621,63 @@ export class TrainSystem {
     if (i >= 0) this.trains.splice(i, 1);
   }
 
-  /** Straight trail behind the head, opposite to direction `dir` (used after spawning/reversing). */
-  private resetTrail(t: Train, dir: number): void {
+  /**
+   * Trail behind the head, opposite to direction `dir` (used after spawning/reversing). It
+   * follows the track back from the head's node where there is track, then runs straight.
+   */
+  private resetTrail(t: Train, dir: number, placing = false): void {
+    const track = this.world.track;
     const [x, y, z] = this.headPosition(t);
-    const dx = [1, 1, 0, -1, -1, -1, 0, 1][dir];
-    const dy = [0, 1, 1, 1, 0, -1, -1, -1][dir];
-    const len = Math.hypot(dx, dy);
-    const back = trainLength(t) + 1;
-    t.trail = [
-      { x: x - (dx / len) * back, y: y - (dy / len) * back, z, odo: t.odometer - back },
-      { x, y, z, odo: t.odometer },
-    ];
+    const back = visualLength(t) + 1;
+    const start = t.path[t.seg];
+    let node = start;
+    const behind = (d: number) => [d, (d + 1) % 8, (d + 7) % 8].find((c) => track.connected(node, track.neighbor(node, c)));
+    // Walk the track from the head's node in direction d; returns the points visited.
+    const walk = (d0: number) => {
+      node = start;
+      let d = d0;
+      const out: Array<{ x: number; y: number; z: number }> = [{ x, y, z }];
+      let run = 0;
+      for (let guard = 0; guard < 64 && run < back; guard++) {
+        const c = behind(d);
+        if (c === undefined) break;
+        const next = track.neighbor(node, c);
+        const nx = (next % this.world.width) + 0.5;
+        const ny = Math.floor(next / this.world.width) + 0.5;
+        const last = out[out.length - 1];
+        run += Math.hypot(nx - last.x, ny - last.y);
+        out.push({ x: nx, y: ny, z: this.surfaceZ(next, nx, ny) });
+        node = next;
+        d = c;
+      }
+      return { pts: out, run, d };
+    };
+    // Trail behind the train; a train placed at the end of a line lies along the line.
+    let best = walk((dir + 4) % 8);
+    if (placing && best.run < back) {
+      const other = walk(dir);
+      if (other.run > best.run) best = other;
+    }
+    const pts = best.pts;
+    const run = best.run;
+    const d = best.d;
+    if (run < back) {
+      const last = pts[pts.length - 1];
+      const prev = pts.length > 1 ? pts[pts.length - 2] : { x: x + DXS[(d + 4) % 8], y: y + DYS[(d + 4) % 8] };
+      const l = Math.hypot(last.x - prev.x, last.y - prev.y) || 1;
+      const rest = back - run;
+      pts.push({ x: last.x + ((last.x - prev.x) / l) * rest, y: last.y + ((last.y - prev.y) / l) * rest, z: last.z });
+    }
+    // Oldest point first, odometer decreasing backwards.
+    let odo = t.odometer;
+    const trail: TrailPoint[] = [{ ...pts[0], odo }];
+    for (let k = 1; k < pts.length; k++) {
+      odo -= Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y);
+      trail.push({ ...pts[k], odo });
+    }
+    t.trail = trail.reverse();
   }
+
 
   // -- tick -----------------------------------------------------------------------------------
 
@@ -771,7 +845,7 @@ export class TrainSystem {
     const [x, y] = this.center(node);
     t.trail.push({ x, y, z: this.surfaceZ(node, x, y), odo: t.odometer });
     // Keep only what the cars need.
-    const need = trainLength(t) + 2;
+    const need = visualLength(t) + 2;
     while (t.trail.length > 2 && t.odometer - t.trail[1].odo > need) t.trail.shift();
     // The tail clears this node (and stations we have left) one train length later.
     const st = this.stationAt(node);
@@ -1012,10 +1086,9 @@ export class TrainSystem {
   // -- queries ----------------------------------------------------------------------------------
 
   /** Positions of engine + cars for drawing: [x, y, z, dirX, dirY] per vehicle, head first. */
-  vehiclePositions(t: Train): Array<{ x: number; y: number; z: number; dx: number; dy: number; tunnel: boolean }> {
+  vehiclePositions(t: Train): VehiclePosition[] {
     const [hx, hy, hz] = this.headPosition(t);
     const pts: TrailPoint[] = [...t.trail, { x: hx, y: hy, z: hz, odo: t.odometer }];
-    const out: Array<{ x: number; y: number; z: number; dx: number; dy: number; tunnel: boolean }> = [];
     const at = (back: number) => {
       // Walk back along the polyline from the head.
       let remaining = back;
@@ -1034,16 +1107,32 @@ export class TrainSystem {
       }
       return { x: hx, y: hy, z: hz, dx: 1, dy: 0 };
     };
-    let back = PH.engineLength / 2;
     const tunnelAt = (x: number, y: number) => this.world.track.get(Math.floor(x), Math.floor(y))?.kind === NODE_TUNNEL;
-    const e = at(back);
-    out.push({ ...e, tunnel: tunnelAt(e.x, e.y) });
-    back += PH.engineLength / 2;
-    for (let i = 0; i < t.cars.length; i++) {
-      const p = at(back + PH.carLength / 2);
-      out.push({ ...p, tunnel: tunnelAt(p.x, p.y) });
-      back += PH.carLength;
-    }
+    const out: VehiclePosition[] = [];
+    let back = 0;
+    // Each vehicle sits on the chord between its front and rear points, so it turns smoothly.
+    const place = (len: number, kind: VehiclePosition['kind'], car: number) => {
+      const f = at(back + len * 0.1);
+      const r = at(back + len * 0.9);
+      let dx = f.x - r.x;
+      let dy = f.y - r.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 1e-6) {
+        dx /= d;
+        dy /= d;
+      } else {
+        dx = f.dx;
+        dy = f.dy;
+      }
+      const x = (f.x + r.x) / 2;
+      const y = (f.y + r.y) / 2;
+      out.push({ x, y, z: (f.z + r.z) / 2, dx, dy, tunnel: tunnelAt(x, y), kind, car });
+      back += len;
+    };
+    place(PH.engineLength, 'engine', -1);
+    if (hasTender(t.engine)) place(PH.tenderLength, 'tender', -1);
+    for (let i = 0; i < t.cars.length; i++) place(PH.carLength, 'car', i);
     return out;
   }
+
 }

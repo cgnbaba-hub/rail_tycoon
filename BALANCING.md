@@ -96,6 +96,8 @@ turn); reused track costs `reusePerTile · L`; heuristic = octile distance · si
   crawl on grades. Braking `brakeMphPerTick` (6); stopping distance `k·v²/(2b) + k·v`.
 - movement: `tilesPerTickPerMph` = 0.0065 (40 mph ≈ 6.2 tiles/day).
 - train weight = engine + Σ car tare + loads · cargo tons.
+- train length for signalling = engine 0.52 + 0.42 per car (tiles); steam engines also draw a
+  0.32-tile tender, which fits inside the 0.5-tile margin every block keeps.
 
 **Supply** (loads/month at a station): towns `population_covered × townSupply`
 (passengers 0.0026, mail 0.0009 per person); raw industries `rate` loads/month. Shared equally

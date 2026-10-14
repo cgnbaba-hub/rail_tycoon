@@ -609,7 +609,7 @@ export class App implements ToolHost, TrainUiHost {
       if (!wasClick) return;
       if (this.tool) this.tool.pointerUp?.(tile);
       else {
-        const hit = this.renderer.pickTrain(x, y, 9 * this.camera.scale);
+        const hit = this.renderer.pickTrain(x, y, 9 * (this.camera.tw / 32) * this.camera.scale);
         if (hit >= 0) this.selectTrain(hit);
         else {
           this.selectedTrain = null;

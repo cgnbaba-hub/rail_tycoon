@@ -151,3 +151,28 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   chairman earns a salary ($24k/yr, a company expense) plus dividends.
 - **Year-end report** opens on Jan 1 and pauses the game; it can be switched off from the
   report itself (stored in the browser).
+
+## Graphics polish: trains & track
+- **Zoom 2× renders natively** at 64-px tiles instead of doubling the 1× image, so close up
+  there is real detail (sleepers, windows, wheels) while staying palette-locked and hard-edged.
+  The old chunky doubled look is kept as an extra 4× level. Fixed pixel sprites (trees, rocks)
+  are drawn at 2× there.
+- **Rolling stock** is built from boxes and octagonal cylinders per vehicle type (boiler,
+  stack, dome, cab, cow-catcher; coach windows, boxcar doors, slatted stock cars, tank cars,
+  caboose cupola, …), drawn bottom-up in height bands and outlined in ink so trains read on
+  any ground. Proportions are long and low.
+- **Steam engines pull a tender** (0.32 tiles, `physics.tenderLength`); diesels don't. It is
+  drawn, but signalling keeps using engine + cars: counting it made long trains find fewer
+  safe stopping places and doubled waits in the 120-train stress test, and it fits inside the
+  0.5-tile margin every block keeps anyway.
+- Vehicles sit on the **chord between their front and rear points** on the track, so trains
+  bend smoothly through curves instead of snapping.
+- **Track** is drawn as a path: shaded ballast bed, wooden sleepers at even spacing,
+  two-tone rails at 2×, and smooth curves at 45° bends (quadratic arcs that meet tangentially).
+- **Bridges:** timber trestles with braced bents and railings, stone viaducts with a solid
+  near wall, arch openings where there is clearance and a parapet, steel trusses drawn far side
+  first and near side last. Tunnel portals have stone arches with voussoirs and a cornice;
+  buffer stops are a beam on posts with a lamp.
+- Known limitations: trains are drawn above the scenery, so they can show in front of a tall
+  building that should hide them; a train reversing out of a terminus briefly overhangs the
+  buffer stop (true reversal of the whole train would need a simulation change).

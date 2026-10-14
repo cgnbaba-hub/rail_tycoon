@@ -159,6 +159,8 @@ export interface EconomyData {
     overweightBridgeMph: number;
     carLength: number;
     engineLength: number;
+    /** Steam engines pull a tender of this length behind the loco. */
+    tenderLength: number;
   };
 }
 

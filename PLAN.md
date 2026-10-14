@@ -120,3 +120,11 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] Chairman's personal account: salary, dividends, buy/sell, margin buying, short selling, margin calls with liquidation price, margin-loan interest; net worth history
 - [x] UI: top-bar share price and net-worth chips, finance window (Books, Bonds, Stock chart with volume + ownership pie + "why the price is where it is", Portfolio with margin gauge), confirmations for risky actions, year-end report (pauses the game, can be turned off)
 - [x] Tests: founding, valuation reactions (profit, book, dividends, losses, economy, confidence), convergence & impact, determinism, issue/buyback/split, dividends incl. skipped ones, credit rating, bond interest & rising rates, emergency bonds, book-value identity, bulldoze write-off & undo, depreciation & year-end report, margin limits, margin call at the liquidation price, short selling
+
+## Graphics polish (between M5 and M6)
+
+- [x] Native 64-px rendering at 2× zoom (extra chunky 4× level)
+- [x] New procedural train sprites with ink outline; tenders for steam engines; smooth placement through curves
+- [x] Track: ballast with shoulders, sleepers, two-tone rails, smooth curves
+- [x] Bridges (trestle, stone viaduct, steel truss), tunnel portals, buffer stops, round steam puffs
+- [x] `scripts/showcase.ts`: renders a railway test scene in all rotations plus a sprite sheet to PNG

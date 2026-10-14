@@ -170,14 +170,14 @@ export function parseSprite(rows: string[], legend: Record<string, number>, ax?:
   return { w, h, ax: ax ?? Math.floor(w / 2), ay: ay ?? h - 1, px };
 }
 
-export function blitSprite(buf: PixelBuffer, s: Sprite, x: number, y: number): void {
-  const x0 = Math.round(x) - s.ax;
-  const y0 = Math.round(y) - s.ay;
-  for (let j = 0; j < s.h; j++) {
+export function blitSprite(buf: PixelBuffer, s: Sprite, x: number, y: number, scale = 1): void {
+  const x0 = Math.round(x) - s.ax * scale;
+  const y0 = Math.round(y) - s.ay * scale;
+  for (let j = 0; j < s.h * scale; j++) {
     const ty = y0 + j;
     if (ty < 0 || ty >= buf.h) continue;
-    for (let i = 0; i < s.w; i++) {
-      const p = s.px[j * s.w + i];
+    for (let i = 0; i < s.w * scale; i++) {
+      const p = s.px[Math.floor(j / scale) * s.w + Math.floor(i / scale)];
       if (p < 0) continue;
       const tx = x0 + i;
       if (tx < 0 || tx >= buf.w) continue;

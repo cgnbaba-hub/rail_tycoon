@@ -484,8 +484,53 @@ class ChunkPainter {
       this.bridgeDeck(ax, ay, na.z, bx, by, nb.z, dbl, type);
       return;
     }
-    this.rails(ax, ay, surf(ax, ay), mx, my, surf(mx, my), dbl, 'ground', true, false);
-    this.rails(mx, my, surf(mx, my), bx, by, surf(bx, by), dbl, 'ground', false, true);
+    // One path from A's end through the edge midpoint to B's end, curved at 45° bends.
+    const halfA = this.halfPath(a, b);
+    const halfB = this.halfPath(b, a);
+    const path = [...[...halfA].reverse(), ...halfB.slice(1)].map(([x, y]) => [x, y, surf(x, y)] as [number, number, number]);
+    this.railPath(path, dbl, 'ground', this.needsCap(a, halfA), this.needsCap(b, halfB));
+  }
+
+  /** Does the path end at node `i`'s centre where other track meets it (junction, dead end)? */
+  private needsCap(i: number, half: Array<[number, number]>): boolean {
+    const [cx, cy] = this.center(i);
+    const end = half[half.length - 1];
+    if (Math.abs(end[0] - cx) > 1e-6 || Math.abs(end[1] - cy) > 1e-6) return false;
+    return bitCount(this.world.track.getIdx(i)!.conn) !== 2;
+  }
+
+  /**
+   * Half of the edge i–j on i's side: from the edge midpoint to i. At a plain two-way node
+   * with a 45° bend it ends on a quadratic curve that meets the other half-edge smoothly.
+   */
+  private halfPath(i: number, j: number): Array<[number, number]> {
+    const track = this.world.track;
+    const [cx, cy] = this.center(i);
+    const [ox, oy] = this.center(j);
+    const mid: [number, number] = [(cx + ox) / 2, (cy + oy) / 2];
+    const node = track.getIdx(i)!;
+    if (node.kind === NODE_GROUND && node.station < 0 && bitCount(node.conn) === 2) {
+      const d1 = track.dirBetween(i, j);
+      let d2 = -1;
+      for (let d = 0; d < 8; d++) if (d !== d1 && node.conn & (1 << d)) d2 = d;
+      const diff = (d2 - d1 + 8) % 8;
+      const other = track.getIdx(track.neighbor(i, d2));
+      if ((diff === 3 || diff === 5) && other?.kind === NODE_GROUND && track.getIdx(j)?.kind === NODE_GROUND) {
+        const l1 = Math.hypot(DX[d1], DY[d1]);
+        const l2 = Math.hypot(DX[d2], DY[d2]);
+        const c = 0.34;
+        const p1: [number, number] = [cx + (DX[d1] / l1) * c, cy + (DY[d1] / l1) * c];
+        const p2: [number, number] = [cx + (DX[d2] / l2) * c, cy + (DY[d2] / l2) * c];
+        const out: Array<[number, number]> = [mid, p1];
+        for (let k = 1; k <= 3; k++) {
+          const t = k / 6;
+          const u = 1 - t;
+          out.push([u * u * p1[0] + 2 * u * t * cx + t * t * p2[0], u * u * p1[1] + 2 * u * t * cy + t * t * p2[1]]);
+        }
+        return out;
+      }
+    }
+    return [mid, [cx, cy]];
   }
 
   private drawLoneStationTrack(i: number, node: TrackNode): void {
@@ -496,121 +541,321 @@ class ChunkPainter {
     this.rails(cx - dx, cy - dy, node.z, cx + dx, cy + dy, node.z, false, 'ground', true, true);
   }
 
-  /**
-   * Rails from (x0,y0,z0) to (x1,y1,z1) in world units. `extend0/1` push the ballast a
-   * little past node centres so turns don't show gaps.
-   */
+  /** Straight rails from (x0,y0,z0) to (x1,y1,z1) in world units. */
   private rails(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dbl: boolean, bed: 'ground' | 'wood' | 'stone' | 'steel', extend0: boolean, extend1: boolean): void {
-    const tw = this.tw;
-    if (tw < 16) {
-      drawLine(this.buf, ...this.PW(x0, y0, z0), ...this.PW(x1, y1, z1), solid(PAL.night));
-      return;
-    }
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const len = Math.hypot(dx, dy);
-    if (len === 0) return;
-    const ux = dx / len;
-    const uy = dy / len;
-    const nx = -uy;
-    const ny = ux;
-    const hw = dbl ? 0.31 : 0.17;
-    const e0 = extend0 ? hw * 0.6 : 0;
-    const e1 = extend1 ? hw * 0.6 : 0;
-    const pt = (along: number, off: number, z: number): [number, number] => this.PW(x0 + ux * along + nx * off, y0 + uy * along + ny * off, z);
-    const zAt = (along: number) => z0 + ((z1 - z0) * along) / len;
-    if (bed === 'ground') {
-      this.poly(solid(PAL.shale), pt(-e0, -hw, z0), pt(len + e1, -hw, z1), pt(len + e1, hw, z1), pt(-e0, hw, z0));
-    }
-    const tracks = dbl ? [-0.15, 0.15] : [0];
-    const tie = solid(bed === 'steel' ? PAL.night : PAL.loam);
-    const rail = solid(PAL.fog);
-    const ties = Math.max(1, Math.round(len * (tw >= 32 ? 4 : 3)));
-    for (const off of tracks) {
-      for (let k = 0; k < ties; k++) {
-        const along = ((k + 0.5) * len) / ties;
-        const z = zAt(along);
-        drawLine(this.buf, ...pt(along, off - 0.12, z), ...pt(along, off + 0.12, z), tie);
-      }
-      for (const r of [-0.065, 0.065]) drawLine(this.buf, ...pt(0, off + r, z0), ...pt(len, off + r, z1), rail);
-    }
+    this.railPath(
+      [
+        [x0, y0, z0],
+        [x1, y1, z1],
+      ],
+      dbl,
+      bed,
+      extend0,
+      extend1,
+    );
   }
 
-  private bridgeDeck(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dbl: boolean, type: number): void {
-    const def = CONSTRUCTION.bridges[type] ?? CONSTRUCTION.bridges[0];
-    const deckColor = def.id === 'wood' ? PAL.soil : def.id === 'stone' ? PAL.stone : PAL.slate;
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const len = Math.hypot(dx, dy);
-    const nx = -dy / len;
-    const ny = dx / len;
-    const hw = dbl ? 0.32 : 0.2;
-    const P = (x: number, y: number, z: number) => this.PW(x, y, z);
-    // Front fascia: the deck edge nearer the viewer.
-    const [va, vb] = toView(x0 + nx, y0 + ny, this.rot, this.W, this.H);
-    const [vc, vd] = toView(x0 - nx, y0 - ny, this.rot, this.W, this.H);
-    const s = va + vb > vc + vd ? 1 : -1;
-    const drop = 0.75;
-    this.poly(solid(DARKER[deckColor]), P(x0 + nx * hw * s, y0 + ny * hw * s, z0), P(x1 + nx * hw * s, y1 + ny * hw * s, z1), P(x1 + nx * hw * s, y1 + ny * hw * s, z1 - drop), P(x0 + nx * hw * s, y0 + ny * hw * s, z0 - drop));
-    this.poly(solid(deckColor), P(x0 - nx * hw, y0 - ny * hw, z0), P(x1 - nx * hw, y1 - ny * hw, z1), P(x1 + nx * hw, y1 + ny * hw, z1), P(x0 + nx * hw, y0 + ny * hw, z0));
-    this.rails(x0, y0, z0, x1, y1, z1, dbl, def.id as 'wood' | 'stone' | 'steel', false, false);
-    if (this.tw < 16) return;
-    const railH = def.id === 'steel' ? 2.5 : 0.6;
-    const c = solid(def.id === 'steel' ? PAL.steel : def.id === 'stone' ? PAL.fog : PAL.loam);
-    for (const side of [-1, 1]) {
-      const ox = nx * hw * side;
-      const oy = ny * hw * side;
-      drawLine(this.buf, ...P(x0 + ox, y0 + oy, z0 + railH), ...P(x1 + ox, y1 + oy, z1 + railH), c);
-      if (def.id === 'steel') {
-        const n = Math.max(2, Math.round(len * 2));
-        for (let k = 0; k <= n; k++) {
-          const f = k / n;
-          const px = x0 + dx * f + ox;
-          const py = y0 + dy * f + oy;
-          const pz = z0 + (z1 - z0) * f;
-          drawLine(this.buf, ...P(px, py, pz), ...P(px, py, pz + railH), c);
-          if (k < n) {
-            const g = (k + 1) / n;
-            drawLine(this.buf, ...P(px, py, pz), ...P(x0 + dx * g + ox, y0 + dy * g + oy, z0 + (z1 - z0) * g + railH), c);
-          }
+  /**
+   * Track along a polyline (world x, y, z): a ballast bed with darker shoulders, wooden
+   * sleepers at a steady spacing and two-tone rails. `cap0/1` push the bed a little past the
+   * ends so junctions and dead ends have no gaps.
+   */
+  private railPath(path: Array<[number, number, number]>, dbl: boolean, bed: 'ground' | 'wood' | 'stone' | 'steel', cap0: boolean, cap1: boolean): void {
+    const tw = this.tw;
+    if (path.length < 2) return;
+    if (tw < 16) {
+      for (let k = 0; k + 1 < path.length; k++) drawLine(this.buf, ...this.PW(...path[k]), ...this.PW(...path[k + 1]), solid(PAL.night));
+      return;
+    }
+    const hw = dbl ? 0.31 : 0.17;
+    const pts = path.map((p) => [...p] as [number, number, number]);
+    // Extend the ends along their tangents.
+    const ext = (i: number, j: number, e: number) => {
+      const dx = pts[i][0] - pts[j][0];
+      const dy = pts[i][1] - pts[j][1];
+      const l = Math.hypot(dx, dy) || 1;
+      pts[i] = [pts[i][0] + (dx / l) * e, pts[i][1] + (dy / l) * e, pts[i][2]];
+    };
+    if (cap0) ext(0, 1, hw * 0.7);
+    if (cap1) ext(pts.length - 1, pts.length - 2, hw * 0.7);
+    // Per-point unit normals (averaged at joints).
+    const n = pts.length;
+    const segN: Array<[number, number]> = [];
+    const segL: number[] = [];
+    for (let k = 0; k + 1 < n; k++) {
+      const dx = pts[k + 1][0] - pts[k][0];
+      const dy = pts[k + 1][1] - pts[k][1];
+      const l = Math.hypot(dx, dy) || 1e-9;
+      segN.push([-dy / l, dx / l]);
+      segL.push(l);
+    }
+    const ptN = pts.map((_, k) => {
+      const a = segN[Math.max(0, k - 1)];
+      const b = segN[Math.min(segN.length - 1, k)];
+      const x = a[0] + b[0];
+      const y = a[1] + b[1];
+      const l = Math.hypot(x, y) || 1;
+      // Miter length so offsets keep their width through the bend.
+      const cos = (x * a[0] + y * a[1]) / l;
+      const m = 1 / Math.max(0.7, cos);
+      return [(x / l) * m, (y / l) * m] as [number, number];
+    });
+    const off = (k: number, o: number): [number, number] => this.PW(pts[k][0] + ptN[k][0] * o, pts[k][1] + ptN[k][1] * o, pts[k][2]);
+    if (bed === 'ground') {
+      const shoulder = solid(PAL.shale);
+      const ballast = solid(PAL.stone);
+      for (let k = 0; k + 1 < n; k++) this.poly(shoulder, off(k, -hw), off(k + 1, -hw), off(k + 1, hw), off(k, hw));
+      const inner = hw - (tw >= 64 ? 0.035 : 0.05);
+      for (let k = 0; k + 1 < n; k++) this.poly(ballast, off(k, -inner), off(k + 1, -inner), off(k + 1, inner), off(k, inner));
+    }
+    const tracks = dbl ? [-0.15, 0.15] : [0];
+    // Sleepers at steady spacing along the arc.
+    const total = segL.reduce((a, b) => a + b, 0);
+    const spacing = tw >= 64 ? 0.105 : 0.16;
+    const tieColor = bed === 'steel' ? PAL.night : PAL.loam;
+    const tieHalfLen = 0.115;
+    const tieHalfW = tw >= 64 ? 0.022 : 0;
+    const count = Math.max(1, Math.round(total / spacing));
+    let seg = 0;
+    let segStart = 0;
+    for (let t = 0; t < count; t++) {
+      const s = ((t + 0.5) * total) / count;
+      while (seg < segL.length - 1 && s > segStart + segL[seg]) segStart += segL[seg++];
+      const f = (s - segStart) / segL[seg];
+      const a = pts[seg];
+      const b = pts[seg + 1];
+      const x = a[0] + (b[0] - a[0]) * f;
+      const y = a[1] + (b[1] - a[1]) * f;
+      const z = a[2] + (b[2] - a[2]) * f;
+      const [nx, ny] = segN[seg];
+      const tx = ny;
+      const ty = -nx;
+      for (const o of tracks) {
+        const cx = x + nx * o;
+        const cy = y + ny * o;
+        if (tieHalfW > 0) {
+          const q = (u: number, v: number) => this.PW(cx + nx * u + tx * v, cy + ny * u + ty * v, z);
+          this.poly(solid(tieColor), q(-tieHalfLen, -tieHalfW), q(tieHalfLen, -tieHalfW), q(tieHalfLen, tieHalfW), q(-tieHalfLen, tieHalfW));
+        } else {
+          drawLine(this.buf, ...this.PW(cx - nx * tieHalfLen, cy - ny * tieHalfLen, z), ...this.PW(cx + nx * tieHalfLen, cy + ny * tieHalfLen, z), solid(tieColor));
+        }
+      }
+    }
+    // Rails: a dark web line under a bright head at the closest zoom.
+    const gauge = 0.06;
+    const head = solid(PAL.fog);
+    const web = solid(PAL.steel);
+    for (const o of tracks) {
+      for (const r of [-gauge, gauge]) {
+        for (let k = 0; k + 1 < n; k++) {
+          const [x0, y0] = off(k, o + r);
+          const [x1, y1] = off(k + 1, o + r);
+          if (tw >= 64) drawLine(this.buf, x0, y0 + 1, x1, y1 + 1, web);
+          drawLine(this.buf, x0, y0, x1, y1, head);
         }
       }
     }
   }
 
-  private drawPillar(i: number, node: TrackNode): void {
-    const def = CONSTRUCTION.bridges[node.span] ?? CONSTRUCTION.bridges[0];
-    const wet = this.world.terrain[i] === T.Water || (this.world.flags[i] & F.River) !== 0;
-    const ground = wet ? 0 : this.world.surfaceHeight((i % this.W) + 0.5, Math.floor(i / this.W) + 0.5);
-    const top = node.z - 0.75;
-    if (top <= ground) return;
-    const [cx, cy] = this.center(i);
-    const size = def.id === 'stone' ? 0.13 : def.id === 'steel' ? 0.08 : 0.05;
-    const color = def.id === 'wood' ? PAL.loam : def.id === 'stone' ? PAL.stone : PAL.slate;
-    const [vx0, vy0, vx1, vy1] = this.viewRect(cx - size, cy - size, cx + size, cy + size);
-    this.box(vx0, vy0, vx1, vy1, ground, top, color, color, 'flat', 0, -1);
+  /** Height of the ground (or water surface) under a world point, for bridge supports. */
+  private groundUnder(x: number, y: number): number {
+    const tx = Math.min(this.W - 1, Math.max(0, Math.floor(x)));
+    const ty = Math.min(this.H - 1, Math.max(0, Math.floor(y)));
+    if (this.world.terrain[this.world.tileIndex(tx, ty)] === T.Water) return 0;
+    return this.world.surfaceHeight(x, y);
   }
 
+  private bridgeDeck(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dbl: boolean, type: number): void {
+    const def = CONSTRUCTION.bridges[type] ?? CONSTRUCTION.bridges[0];
+    const kind = def.id as 'wood' | 'stone' | 'steel';
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const hw = dbl ? 0.34 : 0.21;
+    const P = (x: number, y: number, z: number) => this.PW(x, y, z);
+    // Which side faces the viewer.
+    const [va, vb] = toView(x0 + nx, y0 + ny, this.rot, this.W, this.H);
+    const [vc, vd] = toView(x0 - nx, y0 - ny, this.rot, this.W, this.H);
+    const near = va + vb > vc + vd ? 1 : -1;
+    const at = (f: number, side: number, dz = 0): [number, number, number] => [x0 + dx * f + nx * hw * side, y0 + dy * f + ny * hw * side, z0 + (z1 - z0) * f + dz];
+    const big = this.tw >= 32;
+    const truss = (side: number) => {
+      const c = solid(PAL.steel);
+      const sh = solid(PAL.slate);
+      const H = 2.3;
+      const n = Math.max(2, Math.round(len * 2));
+      const line = (a: [number, number, number], b: [number, number, number]) => {
+        const [ax, ay] = P(...a);
+        const [bx, by] = P(...b);
+        if (this.tw >= 64) drawLine(this.buf, ax + 1, ay, bx + 1, by, sh);
+        drawLine(this.buf, ax, ay, bx, by, c);
+      };
+      line(at(0, side, H), at(1, side, H));
+      for (let k = 0; k <= n; k++) {
+        line(at(k / n, side), at(k / n, side, H));
+        if (k < n) line(at(k / n, side), at((k + 1) / n, side, H));
+      }
+    };
+    if (kind === 'steel' && big) truss(-near);
+    if (kind === 'stone') {
+      // Solid stone wall on the near side with an arch opening.
+      const n0 = at(0, near);
+      const n1 = at(1, near);
+      const g0 = this.groundUnder(n0[0], n0[1]);
+      const g1 = this.groundUnder(n1[0], n1[1]);
+      // The wall reaches the ground, or at least shows a deck edge over low water.
+      const b0 = Math.min(g0, n0[2] - 0.55);
+      const b1 = Math.min(g1, n1[2] - 0.55);
+      this.poly(solid(DARKER[PAL.stone]), P(...n0), P(...n1), P(n1[0], n1[1], b1), P(n0[0], n0[1], b0));
+      this.poly(solid(PAL.fog), P(...n0), P(...n1), P(n1[0], n1[1], n1[2] - 0.12), P(n0[0], n0[1], n0[2] - 0.12));
+      if (big) {
+        const top = Math.min(z0, z1) - 0.35;
+        const base = Math.max(g0, g1);
+        if (top - base > 0.4) {
+          const arch: Array<[number, number]> = [];
+          const segs = 8;
+          for (let k = 0; k <= segs; k++) {
+            const th = Math.PI - (k / segs) * Math.PI;
+            const f = 0.5 + Math.cos(th) * 0.36;
+            const h = base + (top - base) * (0.55 + 0.45 * Math.sin(th));
+            const q = at(f, near);
+            arch.push(P(q[0], q[1], h));
+          }
+          const qa = at(0.86, near);
+          const qb = at(0.14, near);
+          arch.push(P(qa[0], qa[1], base), P(qb[0], qb[1], base));
+          this.poly(solid(PAL.night), ...arch);
+        }
+      }
+      this.poly(solid(PAL.stone), P(...at(0, -1)), P(...at(1, -1)), P(...at(1, 1)), P(...at(0, 1)));
+    } else {
+      const deckColor = kind === 'wood' ? PAL.soil : PAL.slate;
+      const drop = kind === 'wood' ? 0.45 : 0.6;
+      this.poly(solid(DARKER[deckColor]), P(...at(0, near)), P(...at(1, near)), P(...at(1, near, -drop)), P(...at(0, near, -drop)));
+      this.poly(solid(deckColor), P(...at(0, -1)), P(...at(1, -1)), P(...at(1, 1)), P(...at(0, 1)));
+    }
+    this.rails(x0, y0, z0, x1, y1, z1, dbl, kind, false, false);
+    if (!big) return;
+    if (kind === 'steel') truss(near);
+    else {
+      // Railings: wooden posts and rail, or a stone parapet.
+      const color = solid(kind === 'stone' ? PAL.fog : PAL.loam);
+      const h = kind === 'stone' ? 0.45 : 0.6;
+      for (const side of [-near, near]) {
+        drawLine(this.buf, ...P(...at(0, side, h)), ...P(...at(1, side, h)), color);
+        if (kind === 'wood') {
+          const n = Math.max(2, Math.round(len * 4));
+          for (let k = 0; k <= n; k++) drawLine(this.buf, ...P(...at(k / n, side)), ...P(...at(k / n, side, h)), color);
+        } else drawLine(this.buf, ...P(...at(0, side, h - 0.15)), ...P(...at(1, side, h - 0.15)), solid(PAL.stone));
+      }
+    }
+  }
+
+  /** Supports under a bridge node: timber trestle bents, or stone piers (also under steel spans). */
+  private drawPillar(i: number, node: TrackNode): void {
+    const def = CONSTRUCTION.bridges[node.span] ?? CONSTRUCTION.bridges[0];
+    const [cx, cy] = this.center(i);
+    const ground = this.groundUnder(cx, cy);
+    const top = node.z - (def.id === 'wood' ? 0.45 : 0.6);
+    if (top <= ground) return;
+    let d = 0;
+    while (d < 7 && !(node.conn & (1 << d))) d++;
+    const l = Math.hypot(DX[d], DY[d]);
+    const ux = DX[d] / l;
+    const uy = DY[d] / l;
+    const nx = -uy;
+    const ny = ux;
+    const hw = node.double ? 0.34 : 0.21;
+    const P = (along: number, across: number, z: number) => this.PW(cx + ux * along + nx * across, cy + uy * along + ny * across, z);
+    if (def.id === 'wood') {
+      if (this.tw < 16) return;
+      const post = solid(PAL.loam);
+      const brace = solid(PAL.soil);
+      const spread = hw + 0.12;
+      for (const side of [-1, 1]) {
+        if (this.tw >= 64) this.poly(post, P(-0.02, side * spread, ground), P(0.02, side * spread, ground), P(0.02, side * hw, top), P(-0.02, side * hw, top));
+        else drawLine(this.buf, ...P(0, side * spread, ground), ...P(0, side * hw, top), post);
+      }
+      drawLine(this.buf, ...P(0, -spread, ground), ...P(0, hw, top), brace);
+      drawLine(this.buf, ...P(0, spread, ground), ...P(0, -hw, top), brace);
+      drawLine(this.buf, ...P(0, -hw - 0.04, top), ...P(0, hw + 0.04, top), post);
+      return;
+    }
+    // A slab across the track; faces towards the viewer, lit side brighter.
+    const color = def.id === 'stone' ? PAL.stone : PAL.shale;
+    const a = def.id === 'stone' ? 0.09 : 0.07;
+    const w = hw * 0.85;
+    const faces: Array<[[number, number], [number, number]]> = [
+      [[a, -w], [a, w]],
+      [[-a, w], [-a, -w]],
+      [[-a, -w], [a, -w]],
+      [[a, w], [-a, w]],
+    ];
+    for (const [p, q] of faces) {
+      const mx = (p[0] + q[0]) / 2;
+      const my = (p[1] + q[1]) / 2;
+      const [vx, vy] = vecToView(ux * mx + nx * my, uy * mx + ny * my, this.rot);
+      if (vx + vy <= 0) continue;
+      const c = vy >= vx ? color : DARKER[color];
+      this.poly(solid(c), P(p[0], p[1], ground), P(q[0], q[1], ground), P(q[0], q[1], top), P(p[0], p[1], top));
+    }
+    this.poly(solid(LIGHTER[color]), P(a, -w, top), P(a, w, top), P(-a, w, top), P(-a, -w, top));
+  }
+
+  /** Tunnel portal: a stone face with a dark arched mouth, voussoirs and a cornice. */
   private portal(x: number, y: number, z: number, dx: number, dy: number): void {
     const len = Math.hypot(dx, dy);
     const nx = -dy / len;
     const ny = dx / len;
     const P = (o: number, h: number) => this.PW(x + nx * o, y + ny * o, z + h);
-    this.poly(solid(PAL.stone), P(-0.27, 0), P(0.27, 0), P(0.27, 1.9), P(-0.27, 1.9));
-    this.poly(solid(PAL.ink), P(-0.16, 0), P(0.16, 0), P(0.16, 1.3), P(0, 1.55), P(-0.16, 1.3));
+    const arch = (r: number, spring: number, rise: number): Array<[number, number]> => {
+      const out: Array<[number, number]> = [P(-r, 0)];
+      for (let k = 0; k <= 8; k++) {
+        const th = Math.PI - (k / 8) * Math.PI;
+        out.push(P(Math.cos(th) * r, spring + Math.sin(th) * rise));
+      }
+      out.push(P(r, 0));
+      return out;
+    };
+    this.poly(solid(DARKER[PAL.stone]), P(-0.36, 0), P(0.36, 0), P(0.36, 1.7), P(-0.36, 1.7));
+    this.poly(solid(PAL.stone), P(-0.31, 0), P(0.31, 0), P(0.31, 1.75), P(-0.31, 1.75));
+    this.poly(solid(PAL.fog), ...arch(0.22, 0.95, 0.5));
+    this.poly(solid(PAL.ink), ...arch(0.17, 0.95, 0.4));
+    if (this.tw >= 32) {
+      this.poly(solid(PAL.shale), P(-0.36, 1.75), P(0.36, 1.75), P(0.36, 1.95), P(-0.36, 1.95));
+      this.poly(solid(PAL.fog), P(-0.03, 1.32), P(0.03, 1.32), P(0.035, 1.5), P(-0.035, 1.5));
+    }
   }
+
 
   private drawBufferStop(i: number, node: TrackNode): void {
     if (this.tw < 16) return;
     let d = 0;
     while (!(node.conn & (1 << d))) d++;
     const [cx, cy] = this.center(i);
-    // Sits just past the centre, on the dead-end side.
-    const bx = cx - DX[d] * 0.18;
-    const by = cy - DY[d] * 0.18;
-    const [vx0, vy0, vx1, vy1] = this.viewRect(bx - 0.09, by - 0.09, bx + 0.09, by + 0.09);
-    this.box(vx0, vy0, vx1, vy1, node.z, node.z + 1, PAL.brick, PAL.oxblood, 'flat', 0, -1);
+    // A timber buffer beam on two posts just past the centre, with a red lamp.
+    const l = Math.hypot(DX[d], DY[d]);
+    const ux = -DX[d] / l;
+    const uy = -DY[d] / l;
+    const nx = -uy;
+    const ny = ux;
+    const z = node.z;
+    const P = (along: number, across: number, h: number) => this.PW(cx + ux * (0.2 + along) + nx * across, cy + uy * (0.2 + along) + ny * across, z + h);
+    for (const side of [-0.1, 0.1]) this.poly(solid(PAL.loam), P(0, side - 0.025, 0), P(0, side + 0.025, 0), P(0, side + 0.025, 0.6), P(0, side - 0.025, 0.6));
+    // Beam: front face and top.
+    this.poly(solid(PAL.brick), P(-0.04, -0.16, 0.3), P(-0.04, 0.16, 0.3), P(-0.04, 0.16, 0.65), P(-0.04, -0.16, 0.65));
+    this.poly(solid(PAL.tile), P(-0.04, -0.16, 0.65), P(-0.04, 0.16, 0.65), P(0.04, 0.16, 0.65), P(0.04, -0.16, 0.65));
+    this.poly(solid(PAL.bone), P(-0.04, -0.03, 0.38), P(-0.04, 0.03, 0.38), P(-0.04, 0.03, 0.57), P(-0.04, -0.03, 0.57));
+    if (this.tw >= 32) {
+      drawLine(this.buf, ...P(0, 0, 0.6), ...P(0, 0, 0.8), solid(PAL.ink));
+      const [lx, ly] = P(0, 0, 0.85);
+      plot(this.buf, lx, ly, solid(PAL.tile));
+      if (this.tw >= 64) plot(this.buf, lx + 1, ly, solid(PAL.ember));
+    }
   }
+
 
   private drawStationTile(i: number, node: TrackNode): void {
     const st = this.world.stations[node.station];
@@ -701,7 +946,7 @@ class ChunkPainter {
     const big = this.tw >= 32;
     const sprite = conifer ? (big ? SPRITES.coniferL : SPRITES.coniferS) : big ? SPRITES.leafyL : SPRITES.leafyS;
     const [px, py] = this.PW(x, y, this.world.surfaceHeight(x, y));
-    blitSprite(this.buf, sprite, px, py);
+    blitSprite(this.buf, sprite, px, py, this.tw >= 64 ? 2 : 1);
   }
 
   private drawForest(tx: number, ty: number): void {
@@ -735,7 +980,7 @@ class ChunkPainter {
     const y = ty + 0.3 + 0.4 * hashFloat(tx, ty, 55);
     const [px, py] = this.PW(x, y, this.world.surfaceHeight(x, y));
     const sprite = this.tw >= 32 ? (snow ? SPRITES.snowRockL : SPRITES.rockL) : SPRITES.rockS;
-    blitSprite(this.buf, sprite, px, py);
+    blitSprite(this.buf, sprite, px, py, this.tw >= 64 ? 2 : 1);
   }
 
   private drawRoad(tx: number, ty: number): void {

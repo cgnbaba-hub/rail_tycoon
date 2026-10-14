@@ -153,7 +153,8 @@
     "stationApproachMph": 12,
     "overweightBridgeMph": 8,
     "carLength": 0.42,
-    "engineLength": 0.52
+    "engineLength": 0.52,
+    "tenderLength": 0.32
   },
   "saturation": {
     "_doc": "Demand level per station and cargo (1 = full price). Delivering n loads lowers it by dropPerCapacity x model.saturation x n / capacity; it recovers towards 1 with the given half-life. capacity = loads/month the catchment absorbs.",
