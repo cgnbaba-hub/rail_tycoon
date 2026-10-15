@@ -1583,3 +1583,6 @@ svg.spark polyline {
     display: none;
   }
 }
+#goal[hidden] {
+  display: none;
+}

@@ -310,3 +310,41 @@ moving average `lf += 0.25 · (share − lf)`.
 - Buckets: amounts at 10/25/45/70 % of the maximum; ±(20 %, 100 %) of half the largest
   magnitude around zero; gradient 1 / 2 / 3.5 / 5 %; catchment 2–5 stations.
 
+## Events, managers, territories, scenarios (M8)
+
+**Events** (`events.json`): rolled monthly with `chancePerYear / 12` while in era, not running
+and not cooling down (24 months after it ends).
+
+| Event | Era | Chance/yr | Months | Effects |
+|---|---|---|---|---|
+| War | 1830–1950 | 3.5 % | 24–48 | steel ×1.5, coal ×1.3, food ×1.3, weapons ×1.6, troops ×1.5, people ×0.85, bonds +1 pt, construction ×1.15, confidence −8 |
+| Gold rush | 1840–1910 | 5 % | 12–24 | passengers ×1.4, mail ×1.3, goods ×1.2, town growth ×1.5, confidence +5 |
+| Oil boom | 1865–1960 | 4 % | 12–36 | oil supply ×1.6, oil/petroleum pay ×1.2 |
+| Strike | 1850–2000 | 7 % | 2–4 | upkeep ×1.3, construction ×1.25, breakdowns ×1.3 |
+| Bad harvest | all | 9 % | 6–12 | grain supply ×0.6, livestock ×0.8; grain pays ×1.15, food ×1.25 |
+| Bumper harvest | all | 8 % | 6–12 | grain supply ×1.4, cotton ×1.2; grain pays ×0.9 |
+| Coal strike | 1850–1960 | 5 % | 3–6 | coal supply ×0.6, coal pays ×1.3, fuel ×1.35 |
+| Building boom | 1860–2000 | 5 % | 12–24 | lumber/cement ×1.3, steel ×1.15, growth ×1.3 |
+| Epidemic | 1830–1920 | 4 % | 3–6 | passengers ×0.7, growth ×0.5 |
+| Air brakes / steel rails / standard time / reefer cars | 1865–1895 windows | 30 % | permanent | breakdowns ×0.9 / upkeep ×0.92 / people ×1.05 / food & milk ×1.1 |
+
+**Managers** (`managers.json`): 3 candidates every January, signing fee = 25 % of a year's
+salary; salaries $20k–$38k/yr. Effects: construction ×0.85; breakdowns ×0.75 & engine upkeep
+×0.9; passengers & mail ×1.1; freight ×1.08; fuel ×0.85; bonds −0.5 pt; goodwill gains ×1.5;
+all-round (construction ×0.95, breakdowns ×0.9, revenue ×1.03); upkeep ×0.85; mail ×1.25.
+
+**Territories** (`territories.json`): regions = round(tiles / 1900) clamped to 3–8; 34 % of
+the others restricted (never the biggest town's). Goodwill starts at 50; monthly
+`+0.6 per served station + min(2.5, revenue / $15k) (× manager) − 0.3 per idle station`, then
+`+3 % of (50 − goodwill)`; one-offs −1.5 per demolished building, −3 per torn-down station,
+−6 per wreck. Charter at goodwill 65 or `$120k × (1 + (year − 1830)/60)`. Construction cost
+× `1.2 − 0.35 × goodwill/100` (×1.2 at 0, ×1.03 at 50, ×0.85 at 100).
+
+**Scenarios** (`scenarios.json`): tiers bronze / silver / gold —
+Tutorial best yearly revenue $60k / $120k / $200k (3 years, towns connected);
+Iron Horse book value $1.3M / $1.8M / $2.6M (1835–1845);
+Coal for the Mills coal+iron+steel loads 150 / 350 / 650 (1870–1880);
+Bridge the Divide best yearly revenue $350k / $650k / $1M (1880–1892, the two largest towns
+connected); Robber Barons net-worth rank 2 / 1 / 1 + $4M (1885–1900, 3 ruthless rivals);
+Streamliner Age net worth $1.5M / $3M / $6M (1936–1950).
+

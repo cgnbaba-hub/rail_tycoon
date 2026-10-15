@@ -42,7 +42,7 @@ tests/      Vitest specs for sim + pure render math
 | M5 | Finance ✅ | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers ✅ | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
 | M7 | Improved UI ✅ | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
-| M8 | Content & polish | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
+| M8 | Content & polish ✅ | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
 
 Every milestone: `npm test` green, `npm run build` green, commit, short summary.
 
@@ -154,4 +154,17 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] Statistics screen (`K`): revenue by cargo (stacked), profit, per-train and per-station sparklines, market value of all railroads, net worth of you vs. the barons (dash patterns + colours)
 - [x] Formula tooltips: share price (fair-value formula), net worth, company cash (revenue − costs), demand gauges (saturation and recovery), multi-line pixel tooltips everywhere instead of browser titles
 - [x] Tests: statistics add up to the books, monthly train profit and load factor, window sums, supply/demand/traffic/profit/congestion/gradient/catchment fields, advisor rules and ordering, templates (incl. reversed), fleet selection and bulk upgrade/sell
+
+## M8 detailed checklist
+
+- [x] Save games: snapshot of the whole game graph (a loaded game continues exactly like the saved one), slots in IndexedDB with a localStorage fallback, quick save (Ctrl+S), autosave every N months, export / import as JSON
+- [x] Settings: music / effects volume, mute, interface size, reduced motion, contextual hints, year-end report, autosave interval
+- [x] Engine roster: 26 fictional engines from 1830 to 2000 (early steam, heavy freight, articulateds, fast passenger steam, diesel switchers, road diesels, gas turbine, high-speed diesel)
+- [x] Historical-flavoured events with spelled-out effects (war, gold rush, oil boom, strikes, harvests, building boom, epidemic) and one-off technologies (air brakes, steel rails, standard time, refrigerated cars)
+- [x] Managers: a few candidates each year, one at a time, salary and signing fee, effects on construction, breakdowns, upkeep, fuel, interest, revenue or goodwill
+- [x] Territories: named regions, goodwill per region (service, revenue, demolition, wrecks), construction cost scaled by goodwill, charters (by goodwill or fee) for restricted regions, rivals kept out; territories overlay and inspector
+- [x] Scenarios with bronze/silver/gold medals (6 incl. the tutorial), title screen, goal chip and window, result screen, medals remembered
+- [x] Interactive tutorial (9 steps completed by doing them, tool highlighted) and one-time contextual hints
+- [x] WebAudio chiptune: three procedural blues/bluegrass songs (bass, rhythm, improvised lead, drums) and synthesized effects (cash register, steam whistle, chuff, stock ticker, construction thud, bulldozer, alarm)
+- [x] Tests: save round-trip determinism, events, managers, roster, territories, scenarios, music composer
 

@@ -550,6 +550,7 @@ export function openFinance(host: TrainUiHost, tab?: FinanceTab, target?: number
     const exec = () => {
       const r = kind === 'buy' ? game.buyStock(tc.id, n) : kind === 'sell' ? game.sellStock(tc.id, n) : kind === 'short' ? game.shortStock(tc.id, n) : game.coverStock(tc.id, n);
       const verb = kind === 'buy' ? 'Bought' : kind === 'sell' ? 'Sold' : kind === 'short' ? 'Sold short' : 'Covered';
+      if (r.ok) host.sfx?.('ticker');
       done(r.ok, r.ok ? `${verb} ${fmtInt(r.shares)} ${tc.ticker} at ${fmtPrice(r.price)}` : r.error ?? 'Trade failed.');
     };
     const cost = n * tc.stock.price;

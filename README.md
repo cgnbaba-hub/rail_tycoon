@@ -58,6 +58,8 @@ npx vite-node scripts/rivals.ts -- <seed> <years> <level>    # watch AI rivals f
 | `G` | Tile grid |
 | `L` | Town labels |
 | `C` | Centre on pinned tile / largest town |
+| `Ctrl+S` | Quick save (the disk button opens save & load, export and import) |
+| Gear button | Settings: music / effects volume, mute, interface size, reduced motion, hints, autosave |
 | `N` | New map (seed, size, water, terrain, forests, towns, start year, rivals, rival skill & attitude) |
 | `H` / `?` | Help |
 
@@ -102,6 +104,21 @@ Statistics (`K`) graph your revenue by cargo, every train and station, and how y
 with the rival barons. Hover numbers in the top bar and station panels for their formulas.
 Save a good train as a template to buy copies (also running the other way).
 
+**Game modes.** The title screen offers the tutorial, six scenarios with bronze, silver and
+gold medals, and the sandbox (any map, your rules). The goal chip in the top bar shows how
+your scenario is going. Games autosave every few months; you can also save, export to a file
+and import it again.
+
+**Events, managers and territories.** Wars, gold rushes, strikes, harvests and new
+technologies change prices and costs for a while (the economic report lists what is in
+effect). Hire one manager at a time in the finance window's Manager tab. The map is divided
+into regions with their own goodwill toward you: good service raises it and lowers your
+building costs; some regions need a charter — earn enough goodwill or buy it from the
+inspector. The Territories overlay shows them all.
+
+**Sound.** Procedural chiptune blues and synthesized effects (cash register, whistle, chuffing
+when you follow a steam train). Adjust or mute them in the settings.
+
 **Rivals.** Up to three rival barons (two by default) build their own railways — their
 stations have coloured roofs and labels — and play the stock market. A baron who buys 30 %
 of your company can call a takeover vote; your own stake, a rising share price and profits
@@ -120,7 +137,8 @@ paused, and construction can be undone for a full refund for a week of game time
 src/sim/     deterministic simulation (no DOM): rng, noise, world, mapgen, time, track,
              construction, trains, economy, cycle, growth, company, finance, chairman,
              ai (rival barons), rivals (mergers, bankruptcy, board vote), stats, advisor,
-             overlays, fleet, game
+             overlays, fleet, events, modifiers, territories, scenario, save, game
+src/audio/   chiptune composer and WebAudio engine (music + effects)
 src/render/  palette, iso projection, camera, software rasterizer, chunk renderer
 src/ui/      DOM HUD, inspector, minimap, dialogs, runtime-generated pixel font
 src/data/    JSON data: cargo, industries, buildings, mapgen, names, time

@@ -21,6 +21,7 @@ import {
 } from '../sim/train';
 import { esc, fmtInt } from './dom';
 import { companyTag } from './rivals';
+import type { Sfx } from '../audio/engine';
 import { cargoChip, lastDeliveryHtml } from './economy';
 import { fmtMoney } from './tools';
 
@@ -31,6 +32,8 @@ export interface TrainUiHost {
   toast(message: string, kind?: 'info' | 'error' | 'money'): void;
   selectTrain(id: number | null): void;
   invalidatePanel(): void;
+  /** Play a sound effect (optional). */
+  sfx?(kind: Sfx): void;
 }
 
 const STATE_LABEL: Record<Train['state'], string> = {
@@ -453,6 +456,7 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
       const r = game.buyTrain(draft.engine, draft.cars, draft.route);
       if (!r.ok) return host.toast(r.error ?? 'Cannot buy this train.', 'error');
       host.toast(`${r.train!.name} (${engineDef(r.train!).name}) bought for ${fmtMoney(r.cost)}`, 'money');
+      host.sfx?.('whistle');
       host.closeModal();
       host.selectTrain(r.train!.id);
     });

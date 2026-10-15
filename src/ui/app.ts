@@ -25,6 +25,8 @@ import { openStats } from './stats';
 import { prefs, onPrefs, uiFontTarget } from './prefs';
 import { openSaves, writeSave } from './saves';
 import { openSettings } from './settings';
+import { audio, type Sfx } from '../audio/engine';
+import { engineDef } from '../sim/train';
 import { goalChipHtml, openGoal, openScenarioEnd, openTitle } from './scenarios';
 import { Tutorial, hint } from './tutorial';
 import { scenarioDef } from '../sim/scenario';
@@ -78,6 +80,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
   private econDirty = true;
   private monthsSinceAutosave = 0;
   private tutorial: Tutorial | null = null;
+  private chuffClock = 0;
   private lastTutorial = 0;
   private lastGoalDay = -99;
   private lastStockKey = '';
@@ -91,7 +94,13 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.bindKeys();
     this.bindTooltips();
     window.addEventListener('resize', () => this.resize());
-    onPrefs(() => this.resize());
+    onPrefs(() => {
+      this.resize();
+      audio.applyVolumes();
+    });
+    // Browsers only allow sound after a user gesture.
+    window.addEventListener('pointerdown', () => audio.unlock());
+    window.addEventListener('keydown', () => audio.unlock());
     this.resize();
   }
 
@@ -192,6 +201,14 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       if (t) {
         const [x, y] = this.game.trains.headPosition(t);
         this.camera.centerOn(x, y);
+        // Steam engines chuff faster as they speed up (only while time runs).
+        if (speedMul > 0 && t.state === 'running' && t.speed > 1 && !engineDef(t).look.diesel) {
+          this.chuffClock += (dt / 1000) * Math.min(4, Math.max(0.5, t.speed / 10)) * Math.min(2, speedMul);
+          if (this.chuffClock >= 0.5) {
+            this.chuffClock = 0;
+            audio.sfx('chuff', 0.25 + this.camera.zoom * 0.12);
+          }
+        }
       } else this.following = null;
     }
     this.renderer.selectedTrain = this.selectedTrain ?? -1;
@@ -298,6 +315,10 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.invalidatePanel();
   }
 
+  sfx(kind: Sfx): void {
+    audio.sfx(kind);
+  }
+
   follow(id: number): void {
     this.following = id;
     this.selectedTrain = id;
@@ -311,7 +332,10 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       case 'delivery': {
         const st = g.world.stations[e.station];
         if (!st) break;
-        if (g.trains.byId(e.train)?.owner === g.company.id) logDelivery(g, e.train, e.station, e.revenue, e.quotes);
+        if (g.trains.byId(e.train)?.owner === g.company.id) {
+          logDelivery(g, e.train, e.station, e.revenue, e.quotes);
+          audio.sfx('cash', 0.6);
+        }
         const tile = stopTile(st);
         const z = g.world.track.getIdx(tile)?.z ?? 0;
         this.renderer.addFloater((tile % W) + 0.5, Math.floor(tile / W) + 0.5, z, `+${fmtMoney(e.revenue)}`);
@@ -334,10 +358,17 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         break;
       }
       case 'wreck':
+        audio.sfx('alarm');
         logEvent(g, 'trains', `${e.name} was wrecked.`, -1);
         this.toast(`${e.name} was wrecked! Engine and cargo are lost.`, 'error');
         this.renderer.addFloater(e.x, e.y, 1, 'WRECK', '#cf5a39');
         if (this.selectedTrain === e.train) this.selectTrain(null);
+        break;
+      case 'built':
+        audio.sfx(e.label.startsWith('Bulldoze') ? 'bulldoze' : 'build');
+        break;
+      case 'undone':
+        audio.sfx('bulldoze', 0.6);
         break;
       case 'news':
         this.showNews(e.headline.text, e.headline.tone);
@@ -394,6 +425,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         break;
       }
       case 'scenarioEnd':
+        audio.sfx('whistle');
         this.setSpeed(0);
         openScenarioEnd(this, e.medal);
         this.refreshGoal();

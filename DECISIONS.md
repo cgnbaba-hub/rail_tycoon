@@ -241,3 +241,34 @@ Decisions made without asking (per the working rules). Revisit any of them on re
 - **Tooltips** are the game's own pixel tooltips (multi-line, formulas spelled out) instead of
   browser `title`s, which are slow, unstyled and invisible to touch users.
 
+## Content & polish (M8)
+- **Saves are a snapshot of the object graph**, not a replay or a hand-written schema: every
+  object reachable from the Game is written once (shared references and cycles preserved),
+  with Maps, Sets and typed arrays encoded and the sim's classes restored by prototype. New
+  fields are saved automatically. Event listeners, the train system's host and the undo
+  history are left out and rebuilt (loading clears undo). A test runs a game, saves, loads,
+  runs both on and checks the two states are byte-identical. To make that hold, station
+  supply is now recomputed every month instead of only on visible population steps.
+- **Storage:** IndexedDB (falls back to localStorage); files export as plain JSON. Saves carry
+  a version number and are refused when it doesn't match.
+- **Events and managers share one modifier system** (revenue/supply by cargo, group or all;
+  construction, fuel, upkeep, breakdowns, interest, growth, goodwill). Events apply to every
+  railroad, a manager only to its company. Event revenue appears in the economy factor of the
+  delivery formula, a manager's in the bonus factor, so the formula stays explainable.
+  Technologies are events that happen once and last.
+- **Territories are Voronoi regions** around spread-out towns. Only the player has goodwill
+  (rivals simply stay out of restricted regions). Goodwill moves slowly and visibly: it is in
+  the inspector, the overlay and the construction cost. Hand-made worlds (tests, future
+  scenario maps) start with charters off; generated maps with charters on (new-map option).
+- **Scenarios are data** (map parameters, settings, one metric with three tiers, optional
+  "connect these towns" requirements). The medal is the best tier reached; gold ends the
+  scenario early, otherwise it ends at the deadline. Medals are stored in the browser.
+- **The tutorial is a scenario plus a step list** whose conditions read the game state
+  (stations in the two towns, connected, a train, revenue, windows opened), so it can't get
+  out of sync with what the player actually did.
+- **Audio is synthesized at run time** with WebAudio: pulse/triangle/square oscillators and
+  LFSR-style noise; the songs are generated bar by bar from a 12-bar (or 16-bar) form with a
+  seeded improvised lead, so they vary between choruses. The note generator is pure and
+  unit-tested; an offline render produced the previews. Sound starts on the first click or
+  key press (browser autoplay rules).
+
