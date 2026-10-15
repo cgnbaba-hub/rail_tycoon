@@ -19,6 +19,13 @@ const ICONS: Record<string, string[]> = {
   train: ['.........', 'X..XXXXX.', 'XX.X...X.', 'XXXX...X.', 'XXXXXXXXX', 'XXXXXXXXX', '.X.X.X.X.', '.........', '.........'],
   finance: ['....X....', '..XXXXX..', '.X..X....', '.X..X....', '..XXXX...', '....X.X..', '....X.X..', '.XXXXX...', '....X....'],
   rivals: ['..XXXXX..', '..XXXXX..', '..XXXXX..', '..X...X..', '..XXXXX..', 'XXXXXXXXX', '.........', '.X.X.X.X.', 'XXXXXXXXX'],
+  heat: ['.........', 'X.X.X.X.X', '.X.X.X.X.', 'X.XXX.X.X', '.XXXXX.X.', 'XXXXXXX.X', '.XXXXX.X.', 'X.XXX.X.X', '.........'],
+  chain: ['XXX......', 'X.X......', 'XXXXX....', '....X....', '....XXXXX', '....X...X', '..XXX...X', '..X.XXXXX', '..XXX....'],
+  bell: ['....X....', '...XXX...', '..XXXXX..', '..XXXXX..', '..XXXXX..', '.XXXXXXX.', 'XXXXXXXXX', '...XXX...', '....X....'],
+  chart: ['X........', 'X......X.', 'X.....XX.', 'X..X..XX.', 'X..XX.XX.', 'X.XXX.XX.', 'X.XXXXXX.', 'X.XXXXXX.', 'XXXXXXXXX'],
+  disk: ['XXXXXXXX.', 'X.XXXX.X.', 'X.XXXX.XX', 'X.XXXX..X', 'X.......X', 'X.XXXXX.X', 'X.X...X.X', 'X.XXXXX.X', 'XXXXXXXXX'],
+  gear: ['...X.X...', '.X.XXX.X.', '..XXXXX..', 'XXX...XXX', '.XX...XX.', 'XXX...XXX', '..XXXXX..', '.X.XXX.X.', '...X.X...'],
+  medal: ['XX.....XX', '.XX...XX.', '..XX.XX..', '...XXX...', '..XXXXX..', '.XXX.XXX.', '.XX...XX.', '.XXX.XXX.', '..XXXXX..'],
   center: ['....X....', '....X....', '..XXXXX..', '..X...X..', 'XXX.X.XXX', '..X...X..', '..XXXXX..', '....X....', '....X....'],
 };
 

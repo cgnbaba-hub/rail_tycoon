@@ -165,7 +165,7 @@ export function monthlyCityGrowth(world: World, economy: Economy, rng: Rng, year
   const classes = MAPGEN.cities.classes;
   for (const city of world.cities) {
     const s = service.get(city.id) ?? { service: 0, supplied: 0 };
-    const rate = (G.naturalPerYear + G.serviceBonusPerYear * s.service + G.supplyBonusPerYear * s.supplied) * economy.cycle.growthFactor;
+    const rate = (G.naturalPerYear + G.serviceBonusPerYear * s.service + G.supplyBonusPerYear * s.supplied) * economy.cycle.growthFactor * economy.mods.growth;
     city.growth = rate;
     city.service = s.service;
     city.supplied = s.supplied;

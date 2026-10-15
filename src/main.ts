@@ -24,9 +24,11 @@ async function boot(): Promise<void> {
   const app = new App();
   // Handy for debugging and automated browser checks.
   (window as unknown as { ironBaron: App }).ironBaron = app;
+  const showTitle = !new URLSearchParams(window.location.search).has('seed');
   withLoading('Surveying the land…', () => {
     app.newGame(paramsFromUrl());
     app.start();
+    if (showTitle) app.openTitle();
   });
 }
 

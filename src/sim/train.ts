@@ -7,11 +7,16 @@ import { findTrainPath, tileDistance } from './routing';
 import { stationEffects, type Station } from './station';
 import { NODE_BRIDGE, NODE_GROUND, NODE_TUNNEL, bitCount, canTurn, stepLength } from './track';
 import type { World } from './world';
+import type { Modifiers } from './modifiers';
 
 const PH = ECONOMY.physics;
 const DXS = [1, 1, 0, -1, -1, -1, 0, 1];
 const DYS = [0, 1, 1, 1, 0, -1, -1, -1];
 const TICKS_PER_YEAR = TIME.ticksPerDay * 365;
+/** Monthly fade of the traffic / congestion counters (a pass is worth ~half after 2 months). */
+export const TRAFFIC_DECAY = 0.7;
+/** Weight of the latest departure in a train's moving-average load factor. */
+const LOAD_EMA = 0.25;
 
 // ---------------------------------------------------------------------------------------
 // Data model (plain objects → easy to save later)
@@ -48,6 +53,14 @@ export interface TrainStats {
   deliveries: number;
   breakdowns: number;
   lastBreakdownTick: number;
+  /** Net profit of each of the last 12 months (newest last). */
+  months: number[];
+  /** Net since the last monthly sample. */
+  monthNet: number;
+  /** Share of freight/passenger cars loaded when leaving a station (moving average), -1 = not yet. */
+  loadFactor: number;
+  /** Departures with cargo counted into loadFactor. */
+  departures: number;
 }
 
 /** A reservation: a node with a lane ('S' exclusive or 'D<dir>'), or a station platform (node = -1). */
@@ -155,7 +168,20 @@ export function cargoBonus(bonus: ConsistBonus, cargo: string): number {
 }
 
 export function newStats(): TrainStats {
-  return { revenue: 0, costs: 0, lastRevenue: 0, lastCosts: 0, lifetimeProfit: 0, deliveries: 0, breakdowns: 0, lastBreakdownTick: -1 };
+  return { revenue: 0, costs: 0, lastRevenue: 0, lastCosts: 0, lifetimeProfit: 0, deliveries: 0, breakdowns: 0, lastBreakdownTick: -1, months: [], monthNet: 0, loadFactor: -1, departures: 0 };
+}
+
+/** Profit over the last 12 months (scaled up while the train is younger than a year). */
+export function annualProfit(t: Train): number {
+  const m = t.stats.months;
+  if (!m.length) return 0;
+  return (m.reduce((a, b) => a + b, 0) * 12) / m.length;
+}
+
+/** Fraction of cargo-carrying cars that are loaded. */
+export function loadedShare(cars: Car[]): number {
+  const real = cars.filter((c) => !isSpecialCar(c.cargo));
+  return real.length ? real.filter((c) => c.loads > 0).length / real.length : 0;
 }
 
 export function engineDef(t: Train): EngineDef {
@@ -329,6 +355,10 @@ export interface TrainHost {
   year: number;
   settings: { wrecks: boolean };
   emit(e: TrainEvent): void;
+  /** Event + manager effects for a company. */
+  mods(owner: number): Modifiers;
+  /** The owner's manager's revenue bonus for a cargo (events are in the economy factor). */
+  managerBonus(owner: number, cargo: string): number;
 }
 
 export type TrainEvent =
@@ -380,11 +410,25 @@ export class TrainSystem {
   readonly trains: Train[] = [];
   readonly signals = new Signals();
   nextId = 1;
+  /** Per tile: trains passing (decaying monthly), sum of their profit/yr, signal-wait ticks. */
+  readonly traffic: Float32Array;
+  readonly profitSum: Float32Array;
+  readonly waits: Float32Array;
 
-  constructor(private readonly host: TrainHost) {}
+  constructor(private host: TrainHost) {
+    const n = host.world.width * host.world.height;
+    this.traffic = new Float32Array(n);
+    this.profitSum = new Float32Array(n);
+    this.waits = new Float32Array(n);
+  }
 
   get world(): World {
     return this.host.world;
+  }
+
+  /** Re-attach to the game after loading a save. */
+  attach(host: TrainHost): void {
+    this.host = host;
   }
 
   byId(id: number): Train | undefined {
@@ -717,11 +761,13 @@ export class TrainSystem {
     for (const t of this.trains) {
       if (t.state !== 'running' && t.state !== 'signal') continue;
       const e = engineDef(t);
-      const factor = consistBonus(t.cars).breakdown * this.serviceFx(t).breakdown;
+      const factor = consistBonus(t.cars).breakdown * this.serviceFx(t).breakdown * this.host.mods(t.owner).breakdowns;
       if (this.host.rng.next() >= breakdownChance(e, engineAgeYears(t, this.host.tick)) * factor) continue;
       const b = ECONOMY.breakdowns;
       const days = this.host.rng.int(b.repairDays[0], b.repairDays[1]);
       const cost = Math.round(e.price * b.repairCostFraction);
+      // A breakdown blocks the line: count it as congestion where it happens.
+      this.noteWait(t.path[Math.min(t.seg, t.path.length - 1)], days * TIME.ticksPerDay);
       t.state = 'broken';
       t.speed = 0;
       t.brokenUntil = this.host.tick + days * TIME.ticksPerDay;
@@ -738,8 +784,18 @@ export class TrainSystem {
       const e = engineDef(t);
       const age = engineAgeYears(t, this.host.tick);
       const base = (e.maintenance / 12) * (1 + ECONOMY.engineWear.maintenancePerYearOfAge * age);
-      this.charge(t, 'maintenance', base * this.serviceFx(t).maintenance);
+      this.charge(t, 'maintenance', base * this.serviceFx(t).maintenance * this.host.mods(t.owner).maintenance);
+      t.stats.months.push(t.stats.monthNet);
+      if (t.stats.months.length > 12) t.stats.months.shift();
+      t.stats.monthNet = 0;
     }
+    // Traffic and congestion fade so the overlays show recent conditions.
+    for (const a of [this.traffic, this.profitSum, this.waits]) for (let i = 0; i < a.length; i++) a[i] *= TRAFFIC_DECAY;
+  }
+
+  /** Signal waiting time (ticks) on a tile, for the congestion overlay. */
+  private noteWait(node: number | undefined, ticks: number): void {
+    if (node !== undefined && node >= 0 && node < this.waits.length) this.waits[node] += ticks;
   }
 
   /** Active maintenance-shop buffs (1 = none). */
@@ -759,6 +815,7 @@ export class TrainSystem {
 
   private charge(t: Train, cat: 'fuel' | 'maintenance' | 'repairs', amount: number): void {
     t.stats.costs += amount;
+    t.stats.monthNet -= amount;
     this.host.companyOf(t.owner).spend(this.host.year, cat, amount);
   }
 
@@ -808,6 +865,7 @@ export class TrainSystem {
         t.state = 'signal';
         t.waitSince = this.host.tick;
       }
+      if (blocked) this.noteWait(t.path[t.seg], 1);
       return;
     }
     t.state = 'running';
@@ -817,7 +875,7 @@ export class TrainSystem {
   private advance(t: Train, d: number, e: EngineDef, tons: number, overweight: boolean): void {
     // Fuel and wreck risk scale with distance.
     const fuel = d * 0.25 * (ECONOMY.fuelPrice[e.fuel] ?? 1) * (e.fuelBase + e.fuelPerTon * tons);
-    this.charge(t, 'fuel', fuel);
+    this.charge(t, 'fuel', fuel * this.host.mods(t.owner).fuel);
     if (this.host.settings.wrecks) {
       const w = ECONOMY.wrecks;
       const age = engineAgeYears(t, this.host.tick);
@@ -855,6 +913,8 @@ export class TrainSystem {
     const node = t.path[t.seg];
     const prev = t.path[t.seg - 1];
     t.heading = this.world.track.dirBetween(prev, node);
+    this.traffic[node] += 1;
+    this.profitSum[node] += annualProfit(t);
     const [x, y] = this.center(node);
     t.trail.push({ x, y, z: this.surfaceZ(node, x, y), odo: t.odometer });
     // Keep only what the cars need.
@@ -960,7 +1020,7 @@ export class TrainSystem {
       const origin = this.world.stations[car.origin];
       const dist = origin ? tileDistance(this.world, stopTile(origin), stopTile(st)) : 0;
       const days = (this.host.tick - car.loadedTick) / TIME.ticksPerDay;
-      const q = econ.quote(st.id, car.cargo, car.loads, dist, days, { bonus: cargoBonus(bonus, car.cargo), graceBonus: stationEffects(origin).fresh });
+      const q = econ.quote(st.id, car.cargo, car.loads, dist, days, { bonus: cargoBonus(bonus, car.cargo) * this.host.managerBonus(t.owner, car.cargo), graceBonus: stationEffects(origin).fresh });
       const prev = quotes.get(car.cargo);
       if (prev) {
         // average the factors over the cars of this cargo
@@ -975,7 +1035,10 @@ export class TrainSystem {
       econ.deliver(st.id, car.cargo, car.loads, q.total);
       this.host.companyOf(t.owner).earn(this.host.year, car.cargo, q.total);
       t.stats.revenue += q.total;
+      t.stats.monthNet += q.total;
       t.stats.deliveries += car.loads;
+      const co = this.host.companyOf(t.owner);
+      co.delivered.set(car.cargo, (co.delivered.get(car.cargo) ?? 0) + car.loads);
       n += car.loads;
       car.loads = 0;
       car.origin = -1;
@@ -1059,6 +1122,9 @@ export class TrainSystem {
         return;
       }
     }
+    const share = loadedShare(t.cars);
+    t.stats.loadFactor = t.stats.departures === 0 ? share : t.stats.loadFactor + (share - t.stats.loadFactor) * LOAD_EMA;
+    t.stats.departures++;
     t.stop = (t.stop + 1) % t.route.length;
     this.depart(t);
   }

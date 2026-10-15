@@ -14,6 +14,7 @@ export type ExpenseCategory =
   | 'trackMaintenance'
   | 'improvementUpkeep'
   | 'salary'
+  | 'charters'
   | 'improvements'
   | 'industries'
   | 'refunds'
@@ -34,7 +35,8 @@ export const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   repairs: 'Breakdown repairs',
   trackMaintenance: 'Track & station upkeep',
   improvementUpkeep: 'Improvement upkeep',
-  salary: "Chairman's salary",
+  salary: 'Salaries (chairman & manager)',
+  charters: 'Charters',
   improvements: 'Station improvements',
   industries: 'Industry purchases',
   refunds: 'Undo refunds',
@@ -121,6 +123,8 @@ export class Company {
   name: string;
   ticker: string;
   cash: number;
+  /** Hired manager (id from managers.json) or null. */
+  manager: string | null = null;
   /** Holder key of the chairman (the baron who runs it). */
   chairman: string;
   /** Company colour (palette name) for the map and charts. */
@@ -165,6 +169,10 @@ export class Company {
   profitTrend = 0;
   /** Net profit per month, newest last (up to 24). */
   readonly monthlyNet: number[] = [];
+  /** Loads delivered per cargo since founding. */
+  readonly delivered = new Map<string, number>();
+  /** Revenue by cargo since the statistics last sampled it (see stats.ts). */
+  readonly sampleRevenue = new Map<string, number>();
 
   readonly stock: StockState;
   readonly history: YearRecord[] = [];
@@ -228,6 +236,7 @@ export class Company {
     const y = this.bucket(this.revenue, year);
     y.set(cargo, (y.get(cargo) ?? 0) + amount);
     this.monthNet += amount;
+    this.sampleRevenue.set(cargo, (this.sampleRevenue.get(cargo) ?? 0) + amount);
   }
 
   /** Non-freight income such as profits from owned industries. */

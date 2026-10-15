@@ -1,5 +1,10 @@
-import { AI, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
+import { AI, MANAGERS, MANAGER_BY_ID, TERRITORIES, type EventDef, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
 import { AIBaron } from './ai';
+import { Statistics } from './stats';
+import { EventSystem } from './events';
+import { Territories, type Region } from './territories';
+import { checkScenario, type Medal, type ScenarioState } from './scenario';
+import { cargoFactor, combineMods, type Modifiers } from './modifiers';
 import { boardVote, checkSolvency, type BoardVote } from './rivals';
 import { Chairman, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
 import { Company, type ExpenseCategory, type YearRecord } from './company';
@@ -52,6 +57,7 @@ import {
   type RouteStop,
   type Train,
   type TrainEvent,
+  type TrainHost,
 } from './train';
 import type { MapParams, World } from './world';
 
@@ -70,6 +76,8 @@ export type GameEvent =
   | { type: 'yearEnd'; report: YearEndReport }
   | { type: 'rival'; company: number; text: string; tone: number }
   | { type: 'gameOver'; over: GameOver }
+  | { type: 'event'; def: EventDef; started: boolean }
+  | { type: 'scenarioEnd'; medal: Medal }
   | TrainEvent;
 
 export interface GameOver {
@@ -87,6 +95,15 @@ export interface YearEndReport {
   worthEnd: number;
   /** The shareholders' vote on the chairman, when one was held. */
   board?: BoardVote;
+}
+
+/** A train recipe: engine, cars and route, to create more trains like it. */
+export interface RouteTemplate {
+  id: number;
+  name: string;
+  engine: string;
+  cargos: string[];
+  route: RouteStop[];
 }
 
 export interface UndoEntry {
@@ -116,6 +133,8 @@ export interface GameSettings {
   aiLevel: AiLevel;
   /** Friendly rivals never short, raid or vote against you. */
   friendlyAi: boolean;
+  /** Some territories need a charter (default on for generated maps, off for hand-made worlds). */
+  charters: boolean;
 }
 
 /** Map a cost breakdown onto ledger categories. */
@@ -128,6 +147,14 @@ function ledgerSplit(b: CostBreakdown): Array<[ExpenseCategory, number]> {
     ['stations', b.stations],
   ];
   return out.filter(([, v]) => v !== 0);
+}
+
+/** A plan with its cost (and breakdown) scaled, e.g. by a manager or an event. */
+function scaleCost<T extends { cost: number; breakdown: CostBreakdown }>(plan: T, f: number): T {
+  if (f === 1) return plan;
+  const breakdown = { ...plan.breakdown };
+  for (const k of Object.keys(breakdown) as Array<keyof CostBreakdown>) breakdown[k] = Math.round(breakdown[k] * f);
+  return { ...plan, cost: Math.round(plan.cost * f), breakdown };
 }
 
 function fmt(n: number): string {
@@ -162,6 +189,20 @@ export class Game {
   /** Ticks since Jan 1 of the start year. */
   tick = 0;
   readonly undoStack: UndoEntry[] = [];
+  /** Monthly history for the statistics screen. */
+  readonly stats = new Statistics();
+  /** Running scenario (null in sandbox games). */
+  scenario: ScenarioState | null = null;
+  /** Regions with goodwill and charters. */
+  readonly territories: Territories;
+  /** Historical events in effect. */
+  readonly events: EventSystem;
+  /** Managers you can hire right now (ids; refreshed every January). */
+  managerOffers: string[] = [];
+  private readonly managerRng: Rng;
+  /** Saved routes + consists for new trains ("route templates"). */
+  readonly templates: RouteTemplate[] = [];
+  private nextTemplateId = 1;
   private readonly growthRng: Rng;
   private readonly marketRng: Rng;
   private listeners: Array<(e: GameEvent) => void> = [];
@@ -174,7 +215,7 @@ export class Game {
     const S = FINANCE.shares;
     const fortune = S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice;
     this.investors = [new Chairman('You', fortune)];
-    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, ...settings };
+    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, charters: !world, ...settings };
     const rivals = Math.max(0, Math.min(AI.barons.length, this.settings.rivals));
     for (let k = 0; k < rivals; k++) {
       const b = AI.barons[k];
@@ -188,10 +229,20 @@ export class Game {
     this.economy = new Economy(this.world, this.settings.model, this.rng.fork(11));
     this.growthRng = this.rng.fork(12);
     this.marketRng = this.rng.fork(13);
+    this.events = new EventSystem(this.rng.fork(14));
+    this.territories = new Territories(this.world, this.rng.fork(16));
+    if (!this.settings.charters) for (const r of this.territories.regions) r.restricted = false;
+    this.managerRng = this.rng.fork(15);
+    this.refreshManagerOffers();
     for (const inv of this.investors) inv.yearStartWorth = this.netWorth(inv);
+    this.trains = new TrainSystem(this.trainHost());
+  }
+
+  /** The train system's view of the game (rebuilt after loading a save). */
+  trainHost(): TrainHost {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
-    this.trains = new TrainSystem({
+    return {
       world: this.world,
       economy: this.economy,
       companyOf: (id: number) => this.companyById(id) ?? this.company,
@@ -203,8 +254,28 @@ export class Game {
       get year() {
         return game.year;
       },
-      emit: (e) => this.emit(e),
-    });
+      emit: (e) => {
+        if (e.type === 'wreck' && this.trains.byId(e.train)?.owner === 0) this.goodwillHit(this.world.tileIndex(Math.floor(e.x), Math.floor(e.y)), -TERRITORIES.wreck);
+        this.emit(e);
+      },
+      mods: (owner: number) => {
+        const c = this.companyById(owner);
+        return c ? this.modsFor(c) : this.events.mods;
+      },
+      managerBonus: (owner: number, cargo: string) => {
+        const id = this.companyById(owner)?.manager;
+        const m = id ? MANAGER_BY_ID.get(id) : undefined;
+        return m?.effects.revenue ? cargoFactor(m.effects.revenue, cargo) : 1;
+      },
+    };
+  }
+
+  /** Re-link a game rebuilt from a save (see save.ts). */
+  restored(): void {
+    this.listeners = [];
+    this.trains.attach(this.trainHost());
+    // Undo entries hold live world transactions; they are not saved.
+    (this as { undoStack: UndoEntry[] }).undoStack = [];
   }
 
   /** The player's company. */
@@ -242,6 +313,10 @@ export class Game {
     return dayToDate(this.day, this.params.startYear);
   }
 
+  dateOf(day: number): GameDate {
+    return dayToDate(day, this.params.startYear);
+  }
+
   get year(): number {
     return this.params.startYear + Math.floor(this.day / 365);
   }
@@ -273,9 +348,14 @@ export class Game {
         this.trains.monthly();
         this.chargeTrackMaintenance();
         for (const ai of this.ai) ai.monthly(this);
+        this.stats.sample(this);
+        this.goodwillMonthly();
+        const sc = checkScenario(this);
+        if (sc) this.emit({ type: 'scenarioEnd', medal: sc.medal });
         this.emit({ type: 'month', date });
         if (date.month === 0) {
           this.financeYearly();
+          this.refreshManagerOffers();
           this.trains.yearly();
           this.economy.yearly();
           this.emit({ type: 'year', date });
@@ -284,8 +364,15 @@ export class Game {
     }
   }
 
-  /** Monthly economy: industries, cycle, owned-industry profits, then town growth. */
+  /** Monthly economy: events, industries, cycle, owned-industry profits, then town growth. */
   private monthly(date: GameDate): void {
+    const ev = this.events.monthly(this.day, this.year);
+    this.economy.mods = this.events.mods;
+    for (const def of ev.started) {
+      if (def.effects.confidence) this.economy.cycle.confidence = Math.max(0, Math.min(100, this.economy.cycle.confidence + def.effects.confidence));
+      this.emit({ type: 'event', def, started: true });
+    }
+    for (const def of ev.ended) this.emit({ type: 'event', def, started: false });
     const newsBefore = this.economy.cycle.news.length;
     const stateBefore = this.economy.cycle.state;
     const income = this.economy.monthly(this.day);
@@ -299,10 +386,9 @@ export class Game {
     const blocked = new Set(this.undoStack.flatMap((e) => e.tx.touchedTiles));
     const reports = monthlyCityGrowth(this.world, this.economy, this.growthRng, this.year, blocked);
     this.economy.resetMonth();
-    if (reports.length) {
-      this.economy.invalidate();
-      this.emit({ type: 'growth', reports });
-    }
+    // Populations change a little every month: recompute station supply from them.
+    this.economy.invalidate();
+    if (reports.length) this.emit({ type: 'growth', reports });
     const cycle = this.economy.cycle;
     if (cycle.state !== stateBefore) this.emit({ type: 'cycle', state: cycle.state, date });
     // news is capped (shifted), so compare against the newest entries
@@ -327,7 +413,10 @@ export class Game {
       add(total, st.owner, (tm.stationPerYear[st.kind] ?? 0) / 12);
       for (const id of st.improvements ?? []) add(upkeep, st.owner, (IMPROVEMENT_BY_ID.get(id)?.upkeep ?? 0) / 12);
     }
-    for (const [owner, v] of total) if (v > 0) this.companyById(owner)?.spend(this.year, 'trackMaintenance', v);
+    for (const [owner, v] of total) {
+      const c = this.companyById(owner);
+      if (c && v > 0) c.spend(this.year, 'trackMaintenance', v * this.modsFor(c).maintenance);
+    }
     for (const [owner, v] of upkeep) if (v > 0) this.companyById(owner)?.spend(this.year, 'improvementUpkeep', v);
   }
 
@@ -336,11 +425,82 @@ export class Game {
   // -------------------------------------------------------------------------------------
 
   planTrack(from: number, to: number, opts: TrackOptions, c: Company = this.company): TrackPlan {
-    return planTrack(this.world, from, to, { ...opts, owner: c.id });
+    const forbidden = this.territories.forbiddenFor(c.id);
+    const plan = planTrack(this.world, from, to, { ...opts, owner: c.id, forbidden });
+    if (!plan.ok) {
+      const closed = [from, to].map((t) => this.territories.regionAt(t)).find((r) => !this.canBuildIn(r, c));
+      if (closed) return { ...plan, error: this.charterError(closed, c) };
+      return plan;
+    }
+    const tiles = plan.steps.map((st) => st.to);
+    const goodwill = c.id === 0 && tiles.length ? tiles.reduce((a, t) => a + this.territories.costFactor(this.territories.regionAt(t)), 0) / tiles.length : 1;
+    return scaleCost(plan, this.modsFor(c).construction * goodwill);
+  }
+
+  /** May company c build in region r? (Rivals stay out of restricted regions.) */
+  canBuildIn(r: Region, c: Company = this.company): boolean {
+    return !r.restricted || (c.id === 0 && r.chartered);
+  }
+
+  private charterError(r: Region, c: Company): string {
+    if (c.id !== 0) return `${r.name} is closed to ${c.name}.`;
+    return `Building in ${r.name} needs a charter: goodwill ${TERRITORIES.charterGoodwill} (now ${Math.round(r.goodwill)}) or ${fmt(this.territories.charterFee(this.year))} — inspect a tile there to buy one.`;
+  }
+
+  /** Buy the charter for a restricted region. */
+  buyCharter(regionId: number, c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    const r = this.territories.regions[regionId];
+    if (!r || !r.restricted) return { ok: false, error: 'No charter needed there.', cost: 0 };
+    if (r.chartered) return { ok: false, error: 'You already hold that charter.', cost: 0 };
+    const fee = this.territories.charterFee(this.year);
+    if (!c.canAfford(fee)) return { ok: false, error: 'Not enough cash.', cost: fee };
+    c.spend(this.year, 'charters', fee);
+    r.chartered = true;
+    c.note(this.day, `Bought the charter for ${r.name}`);
+    return { ok: true, cost: fee };
+  }
+
+  /** Goodwill bookkeeping at month end (player only). */
+  private goodwillMonthly(): void {
+    const T = TERRITORIES;
+    const me = this.company;
+    if (me.defunct) return;
+    const sample = this.stats.samples[this.stats.samples.length - 1];
+    const served = new Set(this.trains.trains.filter((t) => t.owner === me.id).flatMap((t) => t.route.map((r) => r.station)));
+    const gain = new Map<number, number>();
+    const revenue = new Map<number, number>();
+    for (const st of this.world.liveStations()) {
+      if (st.owner !== me.id) continue;
+      const r = this.territories.regionAt(st.tiles[0]).id;
+      gain.set(r, (gain.get(r) ?? 0) + (served.has(st.id) ? T.perServedStation : -T.idleStation));
+      revenue.set(r, (revenue.get(r) ?? 0) + (sample?.stations[st.id] ?? 0));
+    }
+    const mult = this.modsFor(me).goodwill;
+    for (const r of this.territories.regions) {
+      const g = (gain.get(r.id) ?? 0) + Math.min(T.revenueCap, (revenue.get(r.id) ?? 0) / T.perRevenue);
+      this.territories.change(r, g > 0 ? g * mult : g);
+      this.territories.change(r, (T.start - r.goodwill) * T.drift);
+      if (r.restricted && !r.chartered && r.goodwill >= T.charterGoodwill) {
+        r.chartered = true;
+        this.emit({ type: 'finance', company: me.id, text: `${r.name} grants ${me.name} a charter: its people like your railroad.`, tone: 1 });
+      }
+    }
+  }
+
+  /** One-off goodwill change in the region of a tile. */
+  private goodwillHit(tile: number, delta: number): void {
+    if (tile < 0) return;
+    this.territories.change(this.territories.regionAt(tile), delta);
   }
 
   planStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y', c: Company = this.company): StationPlan {
-    return planStation(this.world, x, y, kind, axis, c.id);
+    const plan = planStation(this.world, x, y, kind, axis, c.id);
+    const closed = plan.tiles.map((t) => this.territories.regionAt(t)).find((r) => !this.canBuildIn(r, c));
+    if (closed && plan.ok) return { ...plan, ok: false, error: this.charterError(closed, c) };
+    const goodwill = c.id === 0 && plan.tiles.length ? this.territories.costFactor(this.territories.regionAt(plan.tiles[0])) : 1;
+    return scaleCost(plan, this.modsFor(c).construction * goodwill);
   }
 
   /** Why company c can't act right now (game over for the player, or a defunct company). */
@@ -379,6 +539,7 @@ export class Game {
     if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost, plan };
     const tx = new Transaction(this.world);
     applyTrackPlan(this.world, plan, o, tx);
+    if (c.id === 0) for (const t of plan.demolished) this.goodwillHit(t, -TERRITORIES.perDemolished);
     const tiles = Math.round(plan.lengthTiles);
     this.commit(`Track (${tiles} tile${tiles === 1 ? '' : 's'})`, tx, ledgerSplit(plan.breakdown), c);
     return { ok: true, cost: plan.cost, plan };
@@ -410,6 +571,7 @@ export class Game {
     if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost };
     const value = this.replacementValue(plan.tiles, plan.stations);
     const tx = new Transaction(this.world);
+    if (c.id === 0) for (const id of plan.stations) this.goodwillHit(this.world.stations[id]?.tiles[0] ?? -1, -TERRITORIES.bulldozedStation);
     applyBulldoze(this.world, plan, tx);
     const what = plan.stations.length ? `${plan.stations.length} station${plan.stations.length > 1 ? 's' : ''}` : `${plan.tiles.length} track tile${plan.tiles.length > 1 ? 's' : ''}`;
     const before = c.infrastructure;
@@ -445,7 +607,7 @@ export class Game {
         ends.push(st);
         continue;
       }
-      const plan = planStation(this.world, e.x, e.y, e.kind, e.axis, c.id);
+      const plan = this.planStation(e.x, e.y, e.kind, e.axis, c);
       if (!plan.ok) return fail(plan.error ?? 'Cannot place station.');
       addSplit(plan.breakdown);
       ends.push(applyStationPlan(this.world, plan, this.day, tx, c.id));
@@ -459,7 +621,7 @@ export class Game {
     };
     const from = nearest(sa, sb);
     const to = nearest(sb, sa);
-    const plan = planTrack(this.world, from, to, o);
+    const plan = this.planTrack(from, to, o, c);
     if (!plan.ok) return fail(plan.error ?? 'No route.');
     const W = this.world.width;
     const straight = Math.hypot((from % W) - (to % W), Math.floor(from / W) - Math.floor(to / W));
@@ -536,7 +698,7 @@ export class Game {
 
   /** Rate a new bond would carry now. */
   newBondRate(c: Company = this.company): number {
-    return bondRate(this.rating(c, FINANCE.bonds.block), this.economy.cycle.state);
+    return Math.max(0.005, bondRate(this.rating(c, FINANCE.bonds.block), this.economy.cycle.state) + this.modsFor(c).interest);
   }
 
   /** An investor's net worth (cash + shares − shorts); yours by default. */
@@ -586,6 +748,8 @@ export class Game {
       // The chairman's salary is part of the month's costs.
       const salary = A.chairmanSalaryPerYear / 12;
       c.spend(closing, 'salary', salary);
+      const mgr = c.manager ? MANAGER_BY_ID.get(c.manager) : undefined;
+      if (mgr) c.spend(closing, 'salary', mgr.salary / 12);
       const boss = this.investorByKey(c.chairman);
       if (boss) boss.cash += salary;
       c.writeDown(closing, 'depreciation', (c.infrastructure * A.infrastructureDepreciation) / 12);
@@ -605,7 +769,7 @@ export class Game {
       // Lenders won't help a company whose debts exceed its assets: that one heads for bankruptcy.
       if (c.cash < 0 && checkSolvency(this, c)) {
         const blocks = Math.ceil(-c.cash / FINANCE.bonds.block);
-        const rate = bondRate(this.rating(c, blocks * FINANCE.bonds.block), this.economy.cycle.state) + FINANCE.bonds.emergencyPenalty;
+        const rate = Math.max(0.005, bondRate(this.rating(c, blocks * FINANCE.bonds.block), this.economy.cycle.state) + this.modsFor(c).interest) + FINANCE.bonds.emergencyPenalty;
         for (let i = 0; i < blocks; i++) c.addBond(this.year, this.day, FINANCE.bonds.block, rate, true);
         c.note(this.day, `Emergency bonds: ${fmt(blocks * FINANCE.bonds.block)} at ${(rate * 100).toFixed(1)}%`);
         this.financeEvent(c, `${c.name} ran out of cash: the bank forced ${blocks} emergency bond${blocks > 1 ? 's' : ''} at ${(rate * 100).toFixed(1)}%.`, -1);
@@ -669,7 +833,7 @@ export class Game {
     const block = FINANCE.bonds.block;
     const after = this.rating(c, block);
     if (after.def.id === 'D') return { ok: false, error: 'No lender will buy more bonds at this level of debt.', cost: 0 };
-    const rate = bondRate(after, this.economy.cycle.state);
+    const rate = Math.max(0.005, bondRate(after, this.economy.cycle.state) + this.modsFor(c).interest);
     c.addBond(this.year, this.day, block, rate);
     c.note(this.day, `Issued a ${fmt(block)} bond at ${(rate * 100).toFixed(1)}%`);
     return { ok: true, cost: -block, rate };
@@ -923,6 +1087,97 @@ export class Game {
     t.engine = best.id;
     t.engineBuiltTick = this.tick;
     return { ok: true, cost };
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Events & managers
+  // -------------------------------------------------------------------------------------
+
+  /** Everything that changes company c's numbers: current events plus its manager. */
+  modsFor(c: Company): Modifiers {
+    const mgr = c.manager ? MANAGER_BY_ID.get(c.manager) : undefined;
+    return mgr ? combineMods(this.events.mods, mgr.effects) : this.events.mods;
+  }
+
+  /** Start an event now (scenarios, tests). */
+  forceEvent(id: string, months?: number): void {
+    const def = this.events.force(id, this.day, months);
+    this.economy.mods = this.events.mods;
+    if (def) this.emit({ type: 'event', def, started: true });
+  }
+
+  /** New candidates each January (never the one you employ). */
+  refreshManagerOffers(): void {
+    const pool = MANAGERS.managers.map((m) => m.id).filter((id) => id !== this.company.manager);
+    const out: string[] = [];
+    while (out.length < MANAGERS.offered && pool.length) out.push(pool.splice(this.managerRng.int(0, pool.length - 1), 1)[0]);
+    this.managerOffers = out;
+  }
+
+  /** Signing fee for a manager. */
+  managerFee(id: string): number {
+    return Math.round((MANAGER_BY_ID.get(id)?.salary ?? 0) * MANAGERS.fee);
+  }
+
+  hireManager(id: string, c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    const def = MANAGER_BY_ID.get(id);
+    if (!def || !this.managerOffers.includes(id)) return { ok: false, error: 'That manager is not available.', cost: 0 };
+    const fee = this.managerFee(id);
+    if (!c.canAfford(fee)) return { ok: false, error: 'Not enough cash for the signing fee.', cost: fee };
+    c.spend(this.year, 'salary', fee);
+    const old = c.manager;
+    c.manager = id;
+    this.managerOffers = this.managerOffers.filter((x) => x !== id);
+    if (old) this.managerOffers.push(old);
+    c.note(this.day, `Hired ${def.name} (${def.title.toLowerCase()})`);
+    return { ok: true, cost: fee };
+  }
+
+  fireManager(c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    if (!c.manager) return { ok: false, error: 'You have no manager.', cost: 0 };
+    this.managerOffers.push(c.manager);
+    c.manager = null;
+    return { ok: true, cost: 0 };
+  }
+
+  /** Save a train's engine, cars and route as a template. */
+  saveTemplate(trainId: number, name?: string): RouteTemplate | null {
+    const t = this.trains.byId(trainId);
+    if (!t || t.owner !== this.company.id) return null;
+    const stops = t.route.map((r) => this.world.stations[r.station]?.name ?? '?');
+    const tpl: RouteTemplate = {
+      id: this.nextTemplateId++,
+      name: name?.trim() || stops.join(' – '),
+      engine: t.engine,
+      cargos: t.cars.map((c) => c.cargo),
+      route: t.route.map((r) => ({ ...r })),
+    };
+    this.templates.push(tpl);
+    return tpl;
+  }
+
+  deleteTemplate(id: number): boolean {
+    const i = this.templates.findIndex((t) => t.id === id);
+    if (i < 0) return false;
+    this.templates.splice(i, 1);
+    return true;
+  }
+
+  /** Buy a train from a template, with the best engine on sale if the saved one no longer is. */
+  buyFromTemplate(id: number, reverse = false): CommandResult & { train?: Train } {
+    const tpl = this.templates.find((t) => t.id === id);
+    if (!tpl) return { ok: false, error: 'No such template.', cost: 0 };
+    const sale = enginesAvailable(this.year);
+    const engine = sale.some((e) => e.id === tpl.engine)
+      ? tpl.engine
+      : sale.filter((e) => e.maxCars >= tpl.cargos.length).sort((a, b) => b.power * b.topSpeed - a.power * a.topSpeed)[0]?.id;
+    if (!engine) return { ok: false, error: 'No suitable engine on sale.', cost: 0 };
+    const route = reverse ? [...tpl.route].reverse() : tpl.route;
+    return this.buyTrain(engine, tpl.cargos, route.map((r) => ({ ...r })));
   }
 
   duplicateTrain(id: number, c: Company = this.company): CommandResult & { train?: Train } {

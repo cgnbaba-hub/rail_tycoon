@@ -12,13 +12,26 @@ import { inspectTile, type Inspection } from './inspector';
 import { Minimap } from './minimap';
 import { crispFontSize } from './theme';
 import { BulldozeTool, StationTool, TrackTool, fmtMoney, type Tool, type ToolHost } from './tools';
-import { openFinance, openYearEnd, personalChipHtml, stockChipHtml, yearEndEnabled } from './finance';
+import { cashTip, openFinance, openYearEnd, personalChipHtml, personalTip, stockChipHtml, stockTip, yearEndEnabled } from './finance';
 import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvementsHtml, industryEconomyHtml, openEconomy, stationDemandHtml, townGrowthHtml } from './economy';
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
-import { AI, type AiLevel, type EconomicModel } from '../data';
+import { AI, TERRITORIES, type AiLevel, type EconomicModel } from '../data';
 import { companyTag, openCompanies, openGameOver } from './rivals';
+import { adviceCount, logDelivery, logEvent, openAdvisor, refreshAdvice, resetFeed, type AdvisorHost } from './advisor';
+import { clearChain, openOverlayPicker, openSupplyChains, overlay, refreshOverlay, setOverlay } from './overlays';
+import { openStats } from './stats';
+import { prefs, onPrefs, uiFontTarget } from './prefs';
+import { openSaves, writeSave } from './saves';
+import { openSettings } from './settings';
+import { audio, type Sfx } from '../audio/engine';
+import { engineDef } from '../sim/train';
+import { goalChipHtml, openGoal, openScenarioEnd, openTitle } from './scenarios';
+import { Tutorial, hint } from './tutorial';
+import { scenarioDef } from '../sim/scenario';
+import type { Advice } from '../sim/advisor';
+import { describeMods } from '../sim/modifiers';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
 const PAN_SPEED = 520; // buffer px per second for keyboard panning
@@ -33,7 +46,7 @@ interface RailButton {
   disabled?: () => boolean;
 }
 
-export class App implements ToolHost, TrainUiHost {
+export class App implements ToolHost, TrainUiHost, AdvisorHost {
   game!: Game;
   camera!: Camera;
   private readonly renderer: Renderer;
@@ -65,6 +78,11 @@ export class App implements ToolHost, TrainUiHost {
   private pendingBreakdowns: string[] = [];
   private breakdownTimer: number | null = null;
   private econDirty = true;
+  private monthsSinceAutosave = 0;
+  private tutorial: Tutorial | null = null;
+  private chuffClock = 0;
+  private lastTutorial = 0;
+  private lastGoalDay = -99;
   private lastStockKey = '';
 
   constructor() {
@@ -76,6 +94,13 @@ export class App implements ToolHost, TrainUiHost {
     this.bindKeys();
     this.bindTooltips();
     window.addEventListener('resize', () => this.resize());
+    onPrefs(() => {
+      this.resize();
+      audio.applyVolumes();
+    });
+    // Browsers only allow sound after a user gesture.
+    window.addEventListener('pointerdown', () => audio.unlock());
+    window.addEventListener('keydown', () => audio.unlock());
     this.resize();
   }
 
@@ -84,13 +109,30 @@ export class App implements ToolHost, TrainUiHost {
   // -------------------------------------------------------------------------------------
 
   newGame(params: MapParams, settings?: Partial<GameSettings>): void {
+    this.startGame(new Game(params, undefined, { rivals: 2, ...settings }));
+  }
+
+  /** Show a game (new or loaded). */
+  startGame(game: Game): void {
+    const params = game.params;
     this.tool?.deactivate?.();
     this.tool = null;
-    this.game = new Game(params, undefined, { rivals: 2, ...settings });
+    this.closeModal();
+    this.game = game;
+    this.monthsSinceAutosave = 0;
+    this.lastStockKey = '';
+    this.lastCash = NaN;
+    this.lastDateText = '';
+    this.tutorial?.close();
+    const def = game.scenario ? scenarioDef(game.scenario.id) : undefined;
+    this.tutorial = def?.tutorial && !game.scenario?.finished ? new Tutorial() : null;
+    this.lastGoalDay = -99;
     this.selectedTrain = null;
     this.following = null;
     this.econDirty = true;
     $('#news').textContent = '';
+    resetFeed();
+    clearChain();
     this.renderer.trains = this.game.trains;
     this.game.on((e) => this.onGameEvent(e));
     const world = this.game.world;
@@ -102,13 +144,23 @@ export class App implements ToolHost, TrainUiHost {
     this.renderer.setWorld(world);
     this.minimap.setWorld(world);
     this.tools = { track: new TrackTool(this), station: new StationTool(this), bulldoze: new BulldozeTool(this) };
+    setOverlay(this.game, null);
+    refreshAdvice(this.game);
     this.buildRail();
     this.pinned = null;
     this.hoverTile = null;
     this.stepper.reset();
-    this.setSpeed(1);
+    this.setSpeed(game.scenario ? 0 : 1);
+    this.refreshGoal();
+    if (game.companies.length > 1) {
+      setTimeout(() => {
+        if (this.game !== game || document.querySelector('.modal-backdrop')) return;
+        const h = hint('rivals');
+        if (h) this.toast(h, 'info');
+      }, 2500);
+    }
     $('#seed').textContent = `Seed ${params.seed}`;
-    $('#company').textContent = this.game.company.name;
+    $('#company').textContent = this.game.company.name + (this.game.over ? ' — game over' : '');
     const url = new URL(window.location.href);
     url.searchParams.set('seed', String(params.seed));
     url.searchParams.set('size', String(params.size));
@@ -149,11 +201,22 @@ export class App implements ToolHost, TrainUiHost {
       if (t) {
         const [x, y] = this.game.trains.headPosition(t);
         this.camera.centerOn(x, y);
+        // Steam engines chuff faster as they speed up (only while time runs).
+        if (speedMul > 0 && t.state === 'running' && t.speed > 1 && !engineDef(t).look.diesel) {
+          this.chuffClock += (dt / 1000) * Math.min(4, Math.max(0.5, t.speed / 10)) * Math.min(2, speedMul);
+          if (this.chuffClock >= 0.5) {
+            this.chuffClock = 0;
+            audio.sfx('chuff', 0.25 + this.camera.zoom * 0.12);
+          }
+        }
       } else this.following = null;
     }
     this.renderer.selectedTrain = this.selectedTrain ?? -1;
     this.tool?.update?.();
-    this.renderer.overlay = this.tool ? this.tool.overlay() : this.inspectOverlay;
+    const ov = this.tool ? this.tool.overlay() : this.inspectOverlay;
+    this.renderer.overlay =
+      overlay.chain.length || overlay.lines.length ? { ...ov, highlights: [...overlay.chain, ...ov.highlights], lines: overlay.lines, labels: overlay.labels } : ov;
+    this.renderer.heat = overlay.heat;
     const time = this.game.tick + this.stepper.alpha;
     this.renderer.render(this.camera, time);
     if (this.renderer.changeCounter !== this.minimapStamp) {
@@ -175,7 +238,8 @@ export class App implements ToolHost, TrainUiHost {
     this.renderer.resize(bw, bh);
     this.canvas.style.width = `${(bw * this.pixelScale) / dpr}px`;
     this.canvas.style.height = `${(bh * this.pixelScale) / dpr}px`;
-    document.documentElement.style.setProperty('--fs', `${crispFontSize(dpr, window.innerWidth < 760 ? 12 : 17)}px`);
+    document.documentElement.style.setProperty('--fs', `${crispFontSize(dpr, uiFontTarget(window.innerWidth < 760))}px`);
+    this.renderer.reducedMotion = prefs.reducedMotion;
   }
 
   // -------------------------------------------------------------------------------------
@@ -205,6 +269,56 @@ export class App implements ToolHost, TrainUiHost {
     this.invalidatePanel();
   }
 
+  private openFinanceWindow(): void {
+    this.tutorial?.note('finance');
+    openFinance(this);
+  }
+
+  private openAdvisorWindow(): void {
+    this.tutorial?.note('advisor');
+    openAdvisor(this);
+  }
+
+  /** Title screen (new game, scenarios, tutorial, continue). */
+  openTitle(): void {
+    this.setSpeed(0);
+    void openTitle(this);
+  }
+
+  /** Scenario goal chip in the top bar. */
+  private refreshGoal(): void {
+    const el = $('#goal');
+    const html = this.game.scenario ? goalChipHtml(this.game) : '';
+    el.hidden = !html;
+    if (el.innerHTML !== html) el.innerHTML = html;
+  }
+
+  private openOverlays(): void {
+    openOverlayPicker(this, () => this.invalidatePanel());
+  }
+
+  /** Jump to whatever an advice or log entry is about. */
+  focusTarget(target: NonNullable<Advice['target']>): void {
+    const g = this.game;
+    if (target.train !== undefined && g.trains.byId(target.train)) {
+      this.selectTrain(target.train);
+      this.follow(target.train);
+    } else if (target.station !== undefined && g.world.stations[target.station]) {
+      const st = g.world.stations[target.station]!;
+      const W = g.world.width;
+      const mid = st.tiles[Math.floor(st.tiles.length / 2)];
+      this.setTool('inspect');
+      this.selectTrain(null);
+      this.pinned = [mid % W, Math.floor(mid / W)];
+      this.camera.centerOn((mid % W) + 0.5, Math.floor(mid / W) + 0.5);
+    } else if (target.company !== undefined) openCompanies(this, target.company);
+    this.invalidatePanel();
+  }
+
+  sfx(kind: Sfx): void {
+    audio.sfx(kind);
+  }
+
   follow(id: number): void {
     this.following = id;
     this.selectedTrain = id;
@@ -218,6 +332,10 @@ export class App implements ToolHost, TrainUiHost {
       case 'delivery': {
         const st = g.world.stations[e.station];
         if (!st) break;
+        if (g.trains.byId(e.train)?.owner === g.company.id) {
+          logDelivery(g, e.train, e.station, e.revenue, e.quotes);
+          audio.sfx('cash', 0.6);
+        }
         const tile = stopTile(st);
         const z = g.world.track.getIdx(tile)?.z ?? 0;
         this.renderer.addFloater((tile % W) + 0.5, Math.floor(tile / W) + 0.5, z, `+${fmtMoney(e.revenue)}`);
@@ -226,6 +344,8 @@ export class App implements ToolHost, TrainUiHost {
       case 'breakdown': {
         // Batch breakdown notices so a big fleet doesn't flood the screen.
         const t = g.trains.byId(e.train);
+        if (t?.owner !== g.company.id) break;
+        logEvent(g, 'trains', `${t.name} broke down: ${e.days} days of repairs, ${fmtMoney(e.cost)}.`, -1, { train: t.id });
         this.pendingBreakdowns.push(`${t?.name ?? 'A train'} (${e.days} d)`);
         if (this.breakdownTimer === null) {
           this.breakdownTimer = window.setTimeout(() => {
@@ -238,31 +358,56 @@ export class App implements ToolHost, TrainUiHost {
         break;
       }
       case 'wreck':
+        audio.sfx('alarm');
+        logEvent(g, 'trains', `${e.name} was wrecked.`, -1);
         this.toast(`${e.name} was wrecked! Engine and cargo are lost.`, 'error');
         this.renderer.addFloater(e.x, e.y, 1, 'WRECK', '#cf5a39');
         if (this.selectedTrain === e.train) this.selectTrain(null);
         break;
+      case 'built':
+        audio.sfx(e.label.startsWith('Bulldoze') ? 'bulldoze' : 'build');
+        break;
+      case 'undone':
+        audio.sfx('bulldoze', 0.6);
+        break;
       case 'news':
         this.showNews(e.headline.text, e.headline.tone);
+        logEvent(g, 'news', e.headline.text, e.headline.tone);
         break;
       case 'cycle': {
         const s = g.economy.cycle.current;
+        logEvent(g, 'news', `The economy enters ${s.name.toLowerCase()} (revenue ×${s.revenue.toFixed(2)}).`, s.revenue >= 1 ? 1 : -1);
         this.toast(`The economy enters ${s.name.toLowerCase() === 'normal' ? 'normal times' : `a ${s.name.toLowerCase()}`}: revenue ×${s.revenue.toFixed(2)}.`, s.revenue >= 1 ? 'money' : 'error');
         break;
       }
       case 'growth': {
         for (const r of e.reports) {
           const city = g.world.cities[r.cityId];
+          if (r.classUp) logEvent(g, 'towns', `${city.name} has grown into a ${(MAPGEN.cities.classes[city.classIndex]?.name ?? 'town').toLowerCase()}.`, 1);
+          if (r.newIndustry) logEvent(g, 'towns', `A new ${r.newIndustry.name} opened near ${city.name}.`, 1);
           if (r.classUp) this.toast(`${city.name} has grown into a ${(MAPGEN.cities.classes[city.classIndex]?.name ?? 'town').toLowerCase()}!`, 'money');
           if (r.newIndustry) this.toast(`A new ${r.newIndustry.name} opened near ${city.name}.`);
         }
         break;
       }
       case 'finance':
+        if (e.company === g.company.id) logEvent(g, 'money', e.text, e.tone);
+        else break;
         this.toast(e.text, e.tone < 0 ? 'error' : 'info');
         this.showNews(e.text, e.tone);
         break;
+      case 'event': {
+        const text = e.started
+          ? `${e.def.headline} (${describeMods(e.def.effects).join(', ')}${e.def.months[1] === 0 ? '; permanent' : ''})`
+          : `${e.def.name} is over: things return to normal.`;
+        logEvent(g, 'news', text, e.started ? e.def.tone : 0);
+        this.showNews(text, e.started ? e.def.tone : 0);
+        if (e.started) this.toast(e.def.headline, e.def.tone < 0 ? 'error' : 'money');
+        this.econDirty = true;
+        break;
+      }
       case 'rival':
+        logEvent(g, 'rivals', e.text, e.tone, { company: e.company });
         this.showNews(e.text, e.tone);
         if (e.tone !== 0) this.toast(e.text, e.tone < 0 ? 'error' : 'money');
         break;
@@ -275,10 +420,20 @@ export class App implements ToolHost, TrainUiHost {
         break;
       case 'marginCall': {
         const n = e.call.sold.reduce((a, s) => a + s.shares, 0);
+        logEvent(g, 'money', `Margin call: your broker closed ${n.toLocaleString('en-US')} shares.`, -1);
         this.toast(`Margin call! Your broker closed ${n.toLocaleString('en-US')} shares to cover your loan.`, 'error');
         break;
       }
-      case 'yearEnd':
+      case 'scenarioEnd':
+        audio.sfx('whistle');
+        this.setSpeed(0);
+        openScenarioEnd(this, e.medal);
+        this.refreshGoal();
+        break;
+      case 'yearEnd': {
+        const h = hint('yearEnd');
+        if (h) this.toast(h, 'info');
+      }
         if (yearEndEnabled()) {
           const resume = this.speed;
           this.setSpeed(0);
@@ -287,15 +442,34 @@ export class App implements ToolHost, TrainUiHost {
         break;
       case 'noroute': {
         const t = g.trains.byId(e.train);
+        if (t?.owner !== g.company.id) break;
+        logEvent(g, 'trains', `${t.name} has no route to its next stop.`, -1, { train: t.id });
         this.toast(`${t?.name ?? 'A train'} has no route to its next stop.`, 'error');
         break;
       }
     }
-    if (e.type === 'month') this.econDirty = true;
+    if (e.type === 'day' && this.game.scenario && g.day - this.lastGoalDay >= 7) {
+      this.lastGoalDay = g.day;
+      this.refreshGoal();
+    }
+    if (e.type === 'month') {
+      this.econDirty = true;
+      this.monthsSinceAutosave++;
+      if (prefs.autosaveMonths > 0 && this.monthsSinceAutosave >= prefs.autosaveMonths) {
+        this.monthsSinceAutosave = 0;
+        writeSave('Autosave', g).catch(() => this.toast('Autosave failed (storage full or blocked).', 'error'));
+      }
+      refreshAdvice(g);
+      if (overlay.kind) refreshOverlay(g);
+    }
     if (e.type !== 'day' && e.type !== 'month') this.invalidatePanel();
   }
 
   setTool(id: string): void {
+    if (id === 'station' || id === 'track') {
+      const h = hint(id);
+      if (h) this.toast(h, 'info');
+    }
     const next = id === 'inspect' ? null : this.tools[id] ?? null;
     if (next === this.tool) return;
     this.tool?.deactivate?.();
@@ -328,9 +502,17 @@ export class App implements ToolHost, TrainUiHost {
     });
     $('#econ').addEventListener('click', () => openEconomy(this));
     $('#stock').addEventListener('click', () => openFinance(this, 'stock'));
+    $('#goal').addEventListener('click', () => openGoal(this));
     $('#personal').addEventListener('click', () => openFinance(this, 'portfolio'));
-    $('#btn-new').innerHTML = `${icon('newmap')}<span>New map</span>`;
+    $('#btn-new').innerHTML = icon('newmap');
+    $('#btn-new').setAttribute('aria-label', 'New map');
     $('#btn-new').addEventListener('click', () => this.openNewGameDialog());
+    $('#btn-save').innerHTML = icon('disk');
+    $('#btn-save').setAttribute('aria-label', 'Save and load');
+    $('#btn-save').addEventListener('click', () => void openSaves(this));
+    $('#btn-settings').innerHTML = icon('gear');
+    $('#btn-settings').setAttribute('aria-label', 'Settings');
+    $('#btn-settings').addEventListener('click', () => openSettings(this));
     $('#btn-help').innerHTML = icon('help');
     $('#btn-help').setAttribute('aria-label', 'Help');
     $('#btn-help').addEventListener('click', () => this.openHelp());
@@ -345,7 +527,11 @@ export class App implements ToolHost, TrainUiHost {
       { id: 'station', icon: 'station', tip: 'Build station — shows catchment', key: 'B', action: () => this.setTool('station'), pressed: () => this.tool?.id === 'station' },
       { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
       { id: 'trains', icon: 'train', tip: 'Trains — fleet list and new trains', key: 'F', action: () => openFleet(this) },
-      { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => openFinance(this) },
+      { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => this.openFinanceWindow() },
+      { id: 'advisor', icon: 'bell', tip: 'Advisor — advice, news log and delivery formulas', key: 'U', action: () => this.openAdvisorWindow() },
+      { id: 'stats', icon: 'chart', tip: 'Statistics — revenue by cargo, trains, stations, rivals, net worth', key: 'K', action: () => openStats(this) },
+      { id: 'overlays', icon: 'heat', tip: 'Map overlays — supply, demand, growth, profit, congestion, gradient', key: 'J', action: () => this.openOverlays(), pressed: () => overlay.kind !== null },
+      { id: 'chains', icon: 'chain', tip: 'Supply chains on this map', key: 'Y', action: () => openSupplyChains(this, () => this.invalidatePanel()), pressed: () => overlay.chainCargo !== null },
       { id: 'companies', icon: 'rivals', tip: 'Railroads — rivals, stakes, takeovers and board confidence', key: 'O', action: () => openCompanies(this) },
       {
         id: 'undo',
@@ -371,7 +557,7 @@ export class App implements ToolHost, TrainUiHost {
         continue;
       }
       const b = h('button', { class: 'btn', id: `tool-${t.id}`, 'data-tip': t.tip, 'data-key': t.key, 'aria-label': t.tip });
-      b.innerHTML = icon(t.icon);
+      b.innerHTML = icon(t.icon) + (t.id === 'advisor' ? '<span class="badge" hidden></span>' : '');
       b.addEventListener('click', () => t.action());
       rail.appendChild(b);
     }
@@ -426,12 +612,34 @@ export class App implements ToolHost, TrainUiHost {
       this.lastStockKey = stockKey;
       $('#stock').innerHTML = stockChipHtml(this.game);
       $('#personal').innerHTML = personalChipHtml(this.game);
+      $('#stock').dataset.tip = stockTip(this.game);
+      $('#personal').dataset.tip = personalTip(this.game);
+      $('#cash-wrap').dataset.tip = cashTip(this.game);
+    }
+    const n = adviceCount();
+    const badge = document.querySelector<HTMLElement>('#tool-advisor .badge');
+    if (badge && badge.textContent !== String(n)) {
+      badge.textContent = String(n);
+      badge.hidden = n === 0;
     }
     if (this.econDirty) {
       this.econDirty = false;
       const el = $('#econ');
       el.innerHTML = economyChipHtml(this.game);
       el.dataset.tip = economyTip(this.game);
+    }
+    if (this.tutorial) {
+      const now = performance.now();
+      if (now - this.lastTutorial > 300) {
+        this.lastTutorial = now;
+        const tool = this.tutorial.update(this.game);
+        document.querySelectorAll('#rail .btn.pulse').forEach((b) => b.id !== `tool-${tool}` && b.classList.remove('pulse'));
+        if (tool) document.getElementById(`tool-${tool}`)?.classList.add('pulse');
+        if (this.tutorial.finished) {
+          this.tutorial = null;
+          this.refreshGoal();
+        }
+      }
     }
     for (const t of this.railButtons) {
       const el = document.getElementById(`tool-${t.id}`) as HTMLButtonElement | null;
@@ -525,6 +733,13 @@ export class App implements ToolHost, TrainUiHost {
     const st = insp.stationId !== undefined ? this.game.world.stations[insp.stationId] : null;
     if (st) bindImprovements(el, this, st);
     bindIndustry(el, this);
+    el.querySelector<HTMLElement>('[data-charter]')?.addEventListener('click', (ev) => {
+      const id = Number((ev.currentTarget as HTMLElement).dataset.charter);
+      const r = this.game.buyCharter(id);
+      this.toast(r.ok ? `Charter bought for ${this.game.territories.regions[id].name} (${fmtMoney(r.cost)})` : r.error ?? 'Cannot buy.', r.ok ? 'money' : 'error');
+      if (overlay.kind) refreshOverlay(this.game);
+      this.invalidatePanel();
+    });
     document.getElementById('unpin')?.addEventListener('click', () => (this.pinned = null));
     el.querySelector<HTMLElement>('[data-act="newtrain"]')?.addEventListener('click', (ev) => {
       const sid = Number((ev.currentTarget as HTMLElement).dataset.station);
@@ -540,12 +755,32 @@ export class App implements ToolHost, TrainUiHost {
     const tile = this.pinned ?? this.hoverTile;
     const node = tile && (insp.kind === 'track' || insp.kind === 'station') ? g.world.track.get(tile[0], tile[1]) : undefined;
     const owner = node ? g.companyById(node.owner) : undefined;
-    const ownerRow = owner ? `<div class="kv"><span>Owner</span><b>${companyTag(owner)}</b></div>` : '';
+    const ownerRow = (owner ? `<div class="kv"><span>Owner</span><b>${companyTag(owner)}</b></div>` : '') + (tile ? this.regionHtml(g.world.tileIndex(tile[0], tile[1])) : '');
     if (st) return ownerRow + stationEconomyHtml(g, st) + stationDemandHtml(g, st) + (st.owner === g.company.id ? improvementsHtml(g, st) : '');
     if (ownerRow) return ownerRow;
     if (insp.industryId !== undefined) return industryEconomyHtml(g, g.world.industries[insp.industryId]);
-    if (insp.cityId !== undefined) return townGrowthHtml(g, g.world.cities[insp.cityId]);
-    return '';
+    if (insp.cityId !== undefined) return ownerRow + townGrowthHtml(g, g.world.cities[insp.cityId]);
+    return ownerRow;
+  }
+
+  /** Region, goodwill and charter status of a tile (inspector). */
+  private regionHtml(tile: number): string {
+    const g = this.game;
+    const r = g.territories.regionAt(tile);
+    const fee = g.territories.charterFee(g.year);
+    const status = !r.restricted
+      ? 'open'
+      : r.chartered
+        ? 'chartered'
+        : `<span class="bad">needs a charter</span>`;
+    const buy =
+      r.restricted && !r.chartered && !g.over
+        ? `<div class="actions"><button class="btn small" data-charter="${r.id}" data-tip="Or win goodwill ${TERRITORIES.charterGoodwill} here (now ${Math.round(r.goodwill)})">Buy charter · ${fmtMoney(fee)}</button></div>`
+        : '';
+    const cost = g.territories.costFactor(r);
+    return `<div class="section">${esc(r.name)}</div>
+      <div class="kv" data-tip="Goodwill 0–100 grows with stations your trains serve and the revenue they earn; it falls when you demolish buildings, tear down stations or wreck trains. Construction here costs ×${cost.toFixed(2)}."><span>Goodwill</span><b>${Math.round(r.goodwill)} / 100</b></div>
+      <div class="kv"><span>Building</span><b>${status}</b></div>${buy}`;
   }
 
   private newsTimer: number | null = null;
@@ -677,6 +912,13 @@ export class App implements ToolHost, TrainUiHost {
       }
       if (target.closest('input, select, textarea')) return;
       const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === 's') {
+        e.preventDefault();
+        writeSave('Quicksave', this.game)
+          .then(() => this.toast('Quick-saved', 'info'))
+          .catch(() => this.toast('Could not save (storage full or blocked).', 'error'));
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && k === 'z') {
         this.undo();
         e.preventDefault();
@@ -744,10 +986,25 @@ export class App implements ToolHost, TrainUiHost {
           this.centerOnFocus();
           break;
         case 'm':
-          openFinance(this);
+          this.openFinanceWindow();
           break;
         case 'o':
           openCompanies(this);
+          break;
+        case 'j':
+          if (e.shiftKey) {
+            setOverlay(this.game, null);
+            clearChain();
+          } else this.openOverlays();
+          break;
+        case 'y':
+          openSupplyChains(this, () => this.invalidatePanel());
+          break;
+        case 'u':
+          this.openAdvisorWindow();
+          break;
+        case 'k':
+          openStats(this);
           break;
         case 'n':
           this.openNewGameDialog();
@@ -832,6 +1089,7 @@ export class App implements ToolHost, TrainUiHost {
         <div class="row"><label>Rivals</label>${sel('rivals', ['0', '1', '2', '3'], String(this.game?.settings.rivals ?? 2))}</div>
         <div class="row"><label>Rival skill</label>${sel('aiLevel', Object.keys(AI.levels), this.game?.settings.aiLevel ?? 'normal')}</div>
         <div class="row"><label>Rival attitude</label>${sel('friendly', ['ruthless', 'friendly'], this.game?.settings.friendlyAi ? 'friendly' : 'ruthless')}</div>
+        <div class="row"><label>Territories</label>${sel('charters', ['charters', 'open'], this.game && !this.game.settings.charters ? 'open' : 'charters')}</div>
         <div class="row"><label>Wrecks</label>${sel('wrecks', ['on', 'off'], this.game ? (this.game.settings.wrecks ? 'on' : 'off') : ECONOMY.wrecks.enabledByDefault ? 'on' : 'off')}</div>
         <div class="row"><label for="ng-year">Start year</label>
           <input id="ng-year" name="startYear" type="number" min="${MAPGEN.startYears[0]}" max="${MAPGEN.startYears[1]}" step="1" value="${p.startYear}" /></div>
@@ -864,6 +1122,7 @@ export class App implements ToolHost, TrainUiHost {
         rivals: Number(fd.get('rivals')),
         aiLevel: fd.get('aiLevel') as AiLevel,
         friendlyAi: fd.get('friendly') === 'friendly',
+        charters: fd.get('charters') !== 'open',
       };
       this.closeModal();
       withLoading('Surveying the land…', () => this.newGame(params, settings));
@@ -880,6 +1139,10 @@ export class App implements ToolHost, TrainUiHost {
       ['F', 'Trains: fleet list, buy & edit trains'],
       ['M', 'Finance: books, bonds, stock, your portfolio'],
       ['O', 'Railroads: rivals, stakes, mergers, board vote'],
+      ['U', 'Advisor: advice, news log, delivery formulas'],
+      ['K', 'Statistics: revenue, trains, stations, rivals, net worth'],
+      ['J / Shift+J', 'Map overlay picker / overlay off'],
+      ['Y', 'Supply-chain explorer'],
       ['Click a train', 'Select it (panel shows cargo, route, profit)'],
       ['Ctrl+Z', 'Undo construction (full refund, within 7 days)'],
       ['I / Esc', 'Back to Inspect · Esc cancels a drag'],

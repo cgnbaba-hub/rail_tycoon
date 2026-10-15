@@ -1,0 +1,66 @@
+{
+  "_doc": "Scenarios (fictional). map = map parameters; settings = game settings; goal.metric: bookValue | netWorth | bestYearRevenue | cargoLoads (with cargos) | rank (net-worth rank among all investors, lower is better). tiers = [bronze, silver, gold] thresholds. requires = conditions every medal needs (connect = your own track between two towns, by population rank). years = time limit from the start year; reaching gold earlier ends the scenario early. See BALANCING.md.",
+  "scenarios": [
+    {
+      "id": "tutorial",
+      "name": "Tutorial: First Spike",
+      "tutorial": true,
+      "brief": "Learn the ropes: connect two towns, run a train and earn your first fortune. Step-by-step help guides you.",
+      "map": { "seed": 1851, "size": 64, "water": "low", "hills": "flat", "forests": "few", "cities": "few", "startYear": 1850 },
+      "settings": { "rivals": 0, "model": "basic", "charters": false, "wrecks": false },
+      "years": 3,
+      "goal": { "metric": "bestYearRevenue", "label": "Best yearly revenue", "tiers": [60000, 120000, 200000] },
+      "requires": [{ "type": "connect", "a": 0, "b": 1 }]
+    },
+    {
+      "id": "iron_horse",
+      "name": "The Iron Horse",
+      "brief": "1835: the first railways are a curiosity. Build a profitable little line and grow the company's book value before 1845.",
+      "map": { "seed": 1835, "size": 128, "water": "normal", "hills": "normal", "forests": "normal", "cities": "normal", "startYear": 1835 },
+      "settings": { "rivals": 0, "model": "basic", "charters": false },
+      "years": 10,
+      "goal": { "metric": "bookValue", "label": "Company book value", "tiers": [1300000, 1800000, 2600000] },
+      "requires": []
+    },
+    {
+      "id": "coal_steel",
+      "name": "Coal for the Mills",
+      "brief": "1870: the steel mills are hungry. Haul coal, iron and steel — deliver as many loads as you can by 1880. One friendly rival competes for the towns.",
+      "map": { "seed": 1870, "size": 128, "water": "low", "hills": "normal", "forests": "normal", "cities": "normal", "startYear": 1870 },
+      "settings": { "rivals": 1, "aiLevel": "normal", "friendlyAi": true, "model": "advanced", "charters": true },
+      "years": 10,
+      "goal": { "metric": "cargoLoads", "cargos": ["coal", "iron", "steel"], "label": "Coal, iron & steel delivered (loads)", "tiers": [150, 350, 650] },
+      "requires": []
+    },
+    {
+      "id": "divide",
+      "name": "Bridge the Divide",
+      "brief": "1880: the two largest towns lie far apart across rough country. Link them with your own track and make the railroad pay before 1892.",
+      "map": { "seed": 1880, "size": 128, "water": "high", "hills": "mountainous", "forests": "normal", "cities": "few", "startYear": 1880 },
+      "settings": { "rivals": 1, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 12,
+      "goal": { "metric": "bestYearRevenue", "label": "Best yearly revenue", "tiers": [350000, 650000, 1000000] },
+      "requires": [{ "type": "connect", "a": 0, "b": 1 }]
+    },
+    {
+      "id": "barons",
+      "name": "Robber Barons",
+      "brief": "1885: three ruthless barons want the country for themselves. Outplay them on the rails and on the stock market: be the richest by 1900.",
+      "map": { "seed": 1885, "size": 192, "water": "normal", "hills": "normal", "forests": "normal", "cities": "many", "startYear": 1885 },
+      "settings": { "rivals": 3, "aiLevel": "ruthless", "friendlyAi": false, "model": "expert", "charters": true },
+      "years": 15,
+      "goal": { "metric": "rank", "label": "Your net-worth rank", "tiers": [2, 1, 1], "goldNetWorth": 4000000 },
+      "requires": []
+    },
+    {
+      "id": "streamliner",
+      "name": "Streamliner Age",
+      "brief": "1936: sleek diesels promise speed. Build a fast passenger network and reach the biggest net worth you can before 1950.",
+      "map": { "seed": 1936, "size": 192, "water": "normal", "hills": "normal", "forests": "few", "cities": "many", "startYear": 1936 },
+      "settings": { "rivals": 2, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 14,
+      "goal": { "metric": "netWorth", "label": "Your personal net worth", "tiers": [1500000, 3000000, 6000000] },
+      "requires": []
+    }
+  ]
+}

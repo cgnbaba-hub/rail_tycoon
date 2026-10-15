@@ -16,6 +16,11 @@ import carsJson from './cars.json';
 import economyJson from './economy.json';
 import financeJson from './finance.json';
 import aiJson from './ai.json';
+import advisorJson from './advisor.json';
+import eventsJson from './events.json';
+import managersJson from './managers.json';
+import territoriesJson from './territories.json';
+import scenariosJson from './scenarios.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -434,6 +439,94 @@ export interface AiData {
 }
 
 export const AI: AiData = aiJson as unknown as AiData;
+export interface AdvisorData {
+  waitingLoads: number;
+  lowLoadFactor: number;
+  minDepartures: number;
+  losingMonths: number;
+  signalWaitDays: number;
+  saturatedDemand: number;
+  lowCash: number;
+  badRatingIndex: number;
+  rivalStakeNotice: number;
+  confidenceDrop: number;
+  maxItems: number;
+}
+export const ADVISOR: AdvisorData = advisorJson as AdvisorData;
+
+/** What an event or a manager changes (see sim/modifiers.ts). */
+export interface ModifierSpec {
+  revenue?: Record<string, number>;
+  supply?: Record<string, number>;
+  construction?: number;
+  fuel?: number;
+  maintenance?: number;
+  breakdowns?: number;
+  interest?: number;
+  growth?: number;
+  goodwill?: number;
+  /** Added to business confidence once, when the event starts. */
+  confidence?: number;
+}
+
+export interface EventDef {
+  id: string;
+  name: string;
+  era: [number, number];
+  chancePerYear: number;
+  /** [min, max] months; [0, 0] = permanent technology. */
+  months: [number, number];
+  tone: number;
+  headline: string;
+  effects: ModifierSpec;
+}
+export const EVENTS = eventsJson as unknown as { cooldownMonths: number; events: EventDef[] };
+
+export interface ManagerDef {
+  id: string;
+  name: string;
+  title: string;
+  salary: number;
+  desc: string;
+  effects: ModifierSpec;
+}
+export const MANAGERS = managersJson as unknown as { fee: number; offered: number; managers: ManagerDef[] };
+export interface TerritoriesData {
+  tilesPerRegion: number;
+  minRegions: number;
+  maxRegions: number;
+  restrictedShare: number;
+  start: number;
+  charterGoodwill: number;
+  charterFee: number;
+  costAt0: number;
+  costAt100: number;
+  perServedStation: number;
+  perRevenue: number;
+  revenueCap: number;
+  idleStation: number;
+  drift: number;
+  perDemolished: number;
+  bulldozedStation: number;
+  wreck: number;
+  names: string[];
+}
+export const TERRITORIES = territoriesJson as TerritoriesData;
+
+export type ScenarioMetric = 'bookValue' | 'netWorth' | 'bestYearRevenue' | 'cargoLoads' | 'rank';
+export interface ScenarioDef {
+  id: string;
+  name: string;
+  tutorial?: boolean;
+  brief: string;
+  map: { seed: number; size: number; water: 'none' | 'low' | 'normal' | 'high'; hills: 'flat' | 'normal' | 'mountainous'; forests: 'few' | 'normal' | 'many'; cities: 'few' | 'normal' | 'many'; startYear: number };
+  settings: { rivals?: number; aiLevel?: AiLevel; friendlyAi?: boolean; model?: EconomicModel; charters?: boolean; wrecks?: boolean };
+  years: number;
+  goal: { metric: ScenarioMetric; label: string; tiers: [number, number, number]; cargos?: string[]; goldNetWorth?: number };
+  requires: Array<{ type: 'connect'; a: number; b: number }>;
+}
+export const SCENARIOS: ScenarioDef[] = (scenariosJson as unknown as { scenarios: ScenarioDef[] }).scenarios;
+export const MANAGER_BY_ID: ReadonlyMap<string, ManagerDef> = new Map(MANAGERS.managers.map((m) => [m.id, m]));
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];

@@ -1,0 +1,17 @@
+{
+  "_doc": "Hireable managers (fictional). salary = $/year (booked monthly as salaries). effects use the same keys as events (see events.json) and apply to your company only. fee = one-off signing bonus as a share of a year's salary.",
+  "fee": 0.25,
+  "offered": 3,
+  "managers": [
+    { "id": "builder", "name": "Silas Thornbury", "title": "Construction boss", "salary": 30000, "desc": "Haggles with every contractor: construction 15% cheaper.", "effects": { "construction": 0.85 } },
+    { "id": "mechanic", "name": "Agnes Whitlow", "title": "Master mechanic", "salary": 26000, "desc": "Runs a tight shop: 25% fewer breakdowns, 10% lower engine upkeep.", "effects": { "breakdowns": 0.75, "maintenance": 0.9 } },
+    { "id": "passenger", "name": "Horace Pemberton", "title": "Passenger agent", "salary": 28000, "desc": "Sells tickets like hot cakes: passenger and mail revenue +10%.", "effects": { "revenue": { "people": 1.1 } } },
+    { "id": "freight", "name": "Ruth Callaway", "title": "Freight traffic manager", "salary": 32000, "desc": "Knows every shipper by name: freight revenue +8%.", "effects": { "revenue": { "bulk": 1.08, "industrial": 1.08, "farm": 1.08, "consumer": 1.08 } } },
+    { "id": "fuel", "name": "Elias Grubb", "title": "Fuel buyer", "salary": 22000, "desc": "Buys wood, coal and oil by the trainload: fuel 15% cheaper.", "effects": { "fuel": 0.85 } },
+    { "id": "banker", "name": "Lucius Ashcombe", "title": "Treasurer", "salary": 34000, "desc": "Friends at every bank: new bonds 0.5 points cheaper.", "effects": { "interest": -0.005 } },
+    { "id": "diplomat", "name": "Clara Dunmore", "title": "Public relations", "salary": 24000, "desc": "Charms town councils: goodwill grows faster everywhere.", "effects": { "goodwill": 1.5 } },
+    { "id": "allround", "name": "Jonah Merriweather", "title": "General manager", "salary": 38000, "desc": "A bit of everything: construction 5% cheaper, 10% fewer breakdowns, revenue +3%.", "effects": { "construction": 0.95, "breakdowns": 0.9, "revenue": { "all": 1.03 } } },
+    { "id": "foreman", "name": "Bartholomew Keane", "title": "Track foreman", "salary": 20000, "desc": "Keeps the line in order: track and engine upkeep 15% lower.", "effects": { "maintenance": 0.85 } },
+    { "id": "express", "name": "Winifred Sallow", "title": "Express agent", "salary": 27000, "desc": "Fast parcels and mail: mail revenue +25%.", "effects": { "revenue": { "mail": 1.25 } } }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "_doc": "Territories (regions) and goodwill. Goodwill 0–100 per region toward your railroad; restricted regions need a charter: granted at charterGoodwill or bought for charterFee (× (1 + years since 1830 / 60)). Construction in a region costs × (costAt0 + (costAt100 − costAt0) × goodwill/100). Monthly goodwill: + perServedStation for each of your stations with trains, + revenue/perRevenue (capped), − idleStation for stations without trains, then drift towards 50; one-offs: − perDemolished building, − bulldozedStation, − wreck. See BALANCING.md.",
+  "tilesPerRegion": 1900,
+  "minRegions": 3,
+  "maxRegions": 8,
+  "restrictedShare": 0.34,
+  "start": 50,
+  "charterGoodwill": 65,
+  "charterFee": 120000,
+  "costAt0": 1.2,
+  "costAt100": 0.85,
+  "perServedStation": 0.6,
+  "perRevenue": 15000,
+  "revenueCap": 2.5,
+  "idleStation": 0.3,
+  "drift": 0.03,
+  "perDemolished": 1.5,
+  "bulldozedStation": 3,
+  "wreck": 6,
+  "names": ["County", "Territory", "Valley", "Plains", "Range", "Basin", "Hills", "Reach"]
+}

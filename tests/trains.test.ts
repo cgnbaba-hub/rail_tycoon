@@ -326,7 +326,7 @@ describe('signalling under load', () => {
   });
 
   it('never gridlocks a dense double-track network with junctions', () => {
-    const g = new Game({ ...defaultMapParams(5), size: 128 }, undefined, { wrecks: false });
+    const g = new Game({ ...defaultMapParams(5), size: 128 }, undefined, { wrecks: false, charters: false });
     g.company.cash = 1e10;
     const towns = [...g.world.cities].sort((p, q) => q.population - p.population).slice(0, 6);
     const st = [];
