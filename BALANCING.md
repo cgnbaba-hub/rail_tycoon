@@ -276,3 +276,37 @@ player runs one line): after 4 years the expander leads (≈ $120k/yr profit, 7 
 builder breaks even on 5 stations, the speculator loses money on its railway; rivals
 hold 5–6 % of the player's company. Simulating 4 years takes < 2 s.
 
+## Advisor and overlays (`advisor.json`, M7)
+
+| Advice | Trigger |
+|---|---|
+| Cargo waiting | ≥ 12 loads of one cargo at your station (worth a look at ≥ 24) |
+| Idle station | no train of yours calls there |
+| Saturated demand | demand level < 50 %, with days to recover to 90 % |
+| Stuck train | waiting ≥ 10 days at a signal |
+| Low load | load factor < 30 % after ≥ 4 departures |
+| Losing train | negative 12-month profit after ≥ 6 months |
+| Worn-out engine | older than its design life |
+| Cash | negative (urgent) or < $50,000 |
+| Credit | rating index ≥ 5 (B or worse) |
+| Margin | margin loan and equity ratio < 50 % (urgent below 36 %) |
+| Rival stake | a baron holds ≥ 10 % of your company (urgent at the 30 % merger threshold) |
+| Board | strike already, or support below 60 % once votes are due |
+| Confidence | ±8 points or more over three months |
+
+**Load factor:** share of cargo cars (caboose/dining car excluded) loaded at departure;
+moving average `lf += 0.25 · (share − lf)`.
+**Train profit/yr:** sum of the last 12 monthly profits × 12 / months recorded.
+
+**Overlay fields** (per tile):
+- Supply: Σ loads/month produced within ±3 tiles (industries at current output; towns
+  `population per building × townSupply`).
+- Demand: Σ loads/month absorbed within ±3 tiles (industries `rate × industryCapacityFactor`,
+  towns `pop/1000 × townCapacityPerThousand` for demanded cargo).
+- Traffic: trains per month ≈ counter × 0.3 (counter fades × 0.7 monthly).
+- Route profit: mean 12-month profit/yr of the trains passing.
+- Congestion: days per month spent blocked at signals or broken down.
+- Gradient: track grade (max over its connections); land: fall over three tiles.
+- Buckets: amounts at 10/25/45/70 % of the maximum; ±(20 %, 100 %) of half the largest
+  magnitude around zero; gradient 1 / 2 / 3.5 / 5 %; catchment 2–5 stations.
+

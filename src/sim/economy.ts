@@ -144,6 +144,8 @@ export interface StationCargo {
   /** Loads delivered / revenue this year. */
   delivered: Record<string, number>;
   revenue: number;
+  /** Revenue since the statistics last sampled it. */
+  revenueSample: number;
   /** Counters for the current month and year (picked up, supplied, delivered). */
   pickedMonth: Record<string, number>;
   suppliedMonth: Record<string, number>;
@@ -233,6 +235,7 @@ function emptyCargo(): StationCargo {
     history: {},
     delivered: {},
     revenue: 0,
+    revenueSample: 0,
     pickedMonth: {},
     suppliedMonth: {},
     deliveredMonth: {},
@@ -479,6 +482,7 @@ export class Economy {
     add(sc.delivered, cargo, loads);
     add(sc.deliveredMonth, cargo, loads);
     sc.revenue += revenue;
+    sc.revenueSample += revenue;
     const se = this.station(stationId);
     const capacity = se?.capacity[cargo] ?? SAT.minTownCapacity;
     sc.demand[cargo] = saturate(sc.demand[cargo] ?? 1, loads, capacity, this.model);

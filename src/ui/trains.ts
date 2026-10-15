@@ -1,10 +1,12 @@
-import { CARGO, CARGO_BY_ID, CAR_BY_ID, ECONOMY, TIME } from '../data';
+import { CARGO, CARGO_BY_ID, CAR_BY_ID, ECONOMY, ENGINE_BY_ID, TIME } from '../data';
 import { PALETTE, type PaletteName } from '../render/palette';
 import { estimateTrain, suggestConsist, type TrainEstimate } from '../sim/estimate';
 import { tilesToMiles } from '../sim/construction';
+import { selectTrains, sellTrains, setRoutes, upgradeEngines, type BulkResult } from '../sim/fleet';
 import { consistPrice, type Game } from '../sim/game';
 import { stationDef, type Station } from '../sim/station';
 import {
+  annualProfit,
   carForCargo,
   engineAgeYears,
   engineDef,
@@ -44,7 +46,7 @@ function chip(cargo: string, loaded = true): string {
   const c = CARGO_BY_ID.get(cargo);
   if (!c) return esc(cargo);
   const color = PALETTE[c.color as PaletteName] ?? PALETTE.bone;
-  return `<span class="chip${loaded ? '' : ' empty'}" title="${esc(c.name)}${loaded ? ' (loaded)' : ' (empty)'}"><i class="swatch" style="background:${loaded ? color : 'transparent'};border-color:${color}"></i>${esc(c.name)}</span>`;
+  return `<span class="chip${loaded ? '' : ' empty'}" data-tip="${esc(c.name)}${loaded ? ' (loaded)' : ' (empty)'}"><i class="swatch" style="background:${loaded ? color : 'transparent'};border-color:${color}"></i>${esc(c.name)}</span>`;
 }
 
 function row(label: string, value: string, cls = ''): string {
@@ -94,6 +96,7 @@ export function trainPanelHtml(game: Game, t: Train): string {
     ? `<button class="btn small" data-act="edit">Edit route & cars</button>
       <button class="btn small" data-act="follow">Follow</button>
       <button class="btn small" data-act="dup">Duplicate</button>
+      <button class="btn small" data-act="template" data-tip="Save engine, cars and route as a template for new trains">Save template</button>
       <button class="btn small" data-act="upgrade" ${best ? '' : 'disabled'} data-tip="${best ? `Replace with ${esc(best.name)}` : 'No better engine on sale'}">Upgrade engine</button>
       <button class="btn small danger" data-act="sell">Sell</button>`
     : '<button class="btn small" data-act="follow">Follow</button>';
@@ -112,6 +115,8 @@ export function trainPanelHtml(game: Game, t: Train): string {
     ${row('Last year', fmtMoney(last))}
     ${row('Revenue / costs', `${fmtMoney(t.stats.revenue)} / ${fmtMoney(t.stats.costs)}`)}
     ${row('Loads delivered', fmtInt(t.stats.deliveries))}
+    <div class="kv" data-tip="Share of cargo cars loaded when the train leaves a station (moving average over recent departures)"><span>Load factor</span><b>${t.stats.loadFactor >= 0 ? `${Math.round(t.stats.loadFactor * 100)}%` : '—'}</b></div>
+    ${row('Profit / yr (12 months)', `<span class="${annualProfit(t) < 0 ? 'bad' : ''}">${fmtMoney(Math.round(annualProfit(t)))}</span>`)}
     ${lastDeliveryHtml(game, t)}
     ${row('Engine age', `${years(age)} of ~${e.lifespan} yr`)}
     ${row('Reliability', `${Math.round(e.reliability * 100)}% · ${t.stats.breakdowns} breakdown${t.stats.breakdowns === 1 ? '' : 's'}`)}
@@ -133,6 +138,11 @@ export function bindTrainPanel(root: HTMLElement, host: TrainUiHost & { follow(i
         case 'follow':
           host.follow(t.id);
           break;
+        case 'template': {
+          const tpl = g.saveTemplate(t.id);
+          if (tpl) host.toast(`Saved template “${tpl.name}”`, 'info');
+          break;
+        }
         case 'dup': {
           const r = g.duplicateTrain(t.id);
           host.toast(r.ok ? `Bought ${r.train!.name} (${fmtMoney(r.cost)})` : r.error ?? 'Cannot duplicate.', r.ok ? 'money' : 'error');
@@ -199,7 +209,7 @@ export function stationEconomyHtml(game: Game, st: Station): string {
     .map(([cargo, rate]) => {
       const have = sc.waiting[cargo] ?? 0;
       const pct = Math.min(100, (have / Math.max(0.01, rate * cap)) * 100);
-      return `<div class="gauge" title="${esc(CARGO_BY_ID.get(cargo)?.name ?? cargo)}: ${have.toFixed(1)} loads waiting, ${rate.toFixed(1)} per month (holds up to ${cap} months)">
+      return `<div class="gauge" data-tip="${esc(CARGO_BY_ID.get(cargo)?.name ?? cargo)}: ${have.toFixed(1)} loads waiting, ${rate.toFixed(1)} per month (holds up to ${cap} months)">
         ${chip(cargo)}<span class="bar"><i style="width:${pct.toFixed(0)}%"></i></span><b>${Math.floor(have)}</b><small>+${rate.toFixed(1)}/mo</small></div>`;
     })
     .join('');
@@ -305,7 +315,7 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
     const routeRows = draft.route
       .map(
         (r, i) => `<li><span class="num">${i + 1}</span><select data-stop="${i}">${stationOpts(r.station)}</select>
-          <select data-load="${i}" title="Loading at this stop"><option value="auto"${r.load === 'auto' ? ' selected' : ''}>Auto-load best paying</option><option value="keep"${r.load === 'keep' ? ' selected' : ''}>Keep car types</option></select>
+          <select data-load="${i}" data-tip="Loading at this stop"><option value="auto"${r.load === 'auto' ? ' selected' : ''}>Auto-load best paying</option><option value="keep"${r.load === 'keep' ? ' selected' : ''}>Keep car types</option></select>
           <label class="check"><input type="checkbox" data-full="${i}"${r.waitFull ? ' checked' : ''}/> wait for full load</label>
           <button class="btn small" data-del="${i}" ${draft.route.length <= 2 ? 'disabled' : ''} aria-label="Remove stop">×</button></li>`,
       )
@@ -325,6 +335,13 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
     const extraCost = existing ? consistDelta(existing, draft.cars) : 0;
     root.innerHTML = `
       <h2>${existing ? `Edit ${esc(existing.name)}` : 'New train'}</h2>
+      ${
+        !existing && game.templates.length
+          ? `<div class="row tpl-row"><label for="tpl">From template</label><select id="tpl"><option value="">—</option>${game.templates
+              .map((t) => `<option value="${t.id}">${esc(t.name)}</option>`)
+              .join('')}</select><button class="btn small" data-act="tplrev" data-tip="Load the selected template with its route reversed">Reversed</button></div>`
+          : ''
+      }
       <div class="cols">
         <section>
           <div class="section">Engine</div>
@@ -403,6 +420,20 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
       draft.cars.push([...draft.cars].reverse().find((c) => !isSpecialCar(c)) ?? 'passengers');
       render();
     });
+    const loadTemplate = (reverse: boolean) => {
+      const id = Number(root.querySelector<HTMLSelectElement>('#tpl')?.value);
+      const tpl = game.templates.find((x) => x.id === id);
+      if (!tpl) return;
+      if (engines.some((x) => x.id === tpl.engine)) draft.engine = tpl.engine;
+      draft.cars = [...tpl.cargos];
+      const r = tpl.route.map((x) => ({ ...x }));
+      draft.route = reverse ? r.reverse() : r;
+      render();
+      const sel = root.querySelector<HTMLSelectElement>('#tpl');
+      if (sel) sel.value = String(id);
+    };
+    root.querySelector<HTMLSelectElement>('#tpl')?.addEventListener('change', () => loadTemplate(false));
+    act('tplrev', () => loadTemplate(true));
     act('suggest', () => {
       draft.cars = suggestConsist(game, draft.engine, draft.route);
       render();
@@ -446,13 +477,14 @@ function consistDelta(t: Train, cargos: string[]): number {
 // Fleet list
 // ---------------------------------------------------------------------------------------
 
-type SortKey = 'name' | 'engine' | 'state' | 'age' | 'profit' | 'last' | 'loads';
+type SortKey = 'name' | 'engine' | 'state' | 'age' | 'reliability' | 'load' | 'profit' | 'last' | 'breakdown';
+
+const fleetState = { sort: 'profit' as SortKey, desc: true, selected: new Set<number>() };
 
 export function openFleet(host: TrainUiHost & { follow(id: number): void }): void {
   const game = host.game;
-  let sort: SortKey = 'profit';
-  let desc = true;
-  const m = host.openModal('<div class="fleet"></div>', 'wide');
+  const st = fleetState;
+  const m = host.openModal('<div class="fleet"></div>', 'wide fleet-modal');
   const root = m.querySelector<HTMLElement>('.fleet')!;
   const value = (t: Train, k: SortKey): number | string => {
     switch (k) {
@@ -464,49 +496,183 @@ export function openFleet(host: TrainUiHost & { follow(id: number): void }): voi
         return t.state;
       case 'age':
         return engineAgeYears(t, game.tick);
+      case 'reliability':
+        return engineDef(t).reliability;
+      case 'load':
+        return t.stats.loadFactor;
       case 'profit':
-        return t.stats.revenue - t.stats.costs;
+        return annualProfit(t);
       case 'last':
         return t.stats.lastRevenue - t.stats.lastCosts;
-      case 'loads':
-        return t.stats.deliveries;
+      case 'breakdown':
+        return t.stats.lastBreakdownTick;
     }
   };
+  const ago = (tick: number) => {
+    if (tick < 0) return 'never';
+    const d = (game.tick - tick) / TIME.ticksPerDay;
+    return d < 60 ? `${Math.floor(d)} d ago` : `${Math.floor(d / 30.4)} mo ago`;
+  };
   const render = () => {
-    const rows = game.trains.trains.filter((t) => t.owner === game.company.id).sort((a, b) => {
-      const va = value(a, sort);
-      const vb = value(b, sort);
+    const mine = game.trains.trains.filter((t) => t.owner === game.company.id);
+    for (const id of [...st.selected]) if (!mine.some((t) => t.id === id)) st.selected.delete(id);
+    const rows = [...mine].sort((a, b) => {
+      const va = value(a, st.sort);
+      const vb = value(b, st.sort);
       const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
-      return desc ? -c : c;
+      return st.desc ? -c : c;
     });
-    const th = (k: SortKey, label: string) => `<th><button class="sort" data-sort="${k}" aria-sort="${sort === k ? (desc ? 'descending' : 'ascending') : 'none'}">${esc(label)}${sort === k ? (desc ? ' ▼' : ' ▲') : ''}</button></th>`;
-    const total = rows.reduce((s, t) => s + t.stats.revenue - t.stats.costs, 0);
+    const th = (k: SortKey, label: string, tip = '') =>
+      `<th><button class="sort" data-sort="${k}" ${tip ? `data-tip="${esc(tip)}"` : ''} aria-sort="${st.sort === k ? (st.desc ? 'descending' : 'ascending') : 'none'}">${esc(label)}${st.sort === k ? (st.desc ? ' ▼' : ' ▲') : ''}</button></th>`;
+    const total = rows.reduce((s2, t) => s2 + annualProfit(t), 0);
+    const n = st.selected.size;
+    const tpls = game.templates;
     root.innerHTML = `
-      <h2>Trains (${rows.length}) · profit this year ${fmtMoney(total)}</h2>
+      <h2>Trains (${rows.length}) · ${fmtMoney(Math.round(total))}/yr over the last 12 months</h2>
+      <div class="fleet-tools">
+        <span>Select:</span>
+        <button class="btn small" data-selq="all">All</button>
+        <button class="btn small" data-selq="none">None</button>
+        <button class="btn small" data-selq="old" data-tip="Engines older than their design life">Worn out</button>
+        <button class="btn small" data-selq="old25" data-tip="Engines older than 25 years">&gt; 25 yrs</button>
+        <button class="btn small" data-selq="losing" data-tip="Losing money over the last 12 months">Losing</button>
+        <button class="btn small" data-selq="low" data-tip="Leaving stations less than 30% full">Low load</button>
+        <span class="grow"></span>
+        <b>${n} selected</b>
+        <button class="btn small" data-bulk="upgrade" ${n ? '' : 'disabled'} data-tip="Replace the engines of the selected trains with the best on sale">Upgrade engines</button>
+        <button class="btn small" data-bulk="route" ${n && tpls.length ? '' : 'disabled'} data-tip="Give the selected trains the route of a template">Route from template</button>
+        <button class="btn small danger" data-bulk="sell" ${n ? '' : 'disabled'}>Sell</button>
+      </div>
       ${
         rows.length
-          ? `<div class="scroll"><table class="table"><thead><tr>${th('name', 'Train')}${th('engine', 'Engine')}${th('state', 'Status')}${th('age', 'Age')}${th('profit', 'Profit YTD')}${th('last', 'Last year')}${th('loads', 'Loads')}</tr></thead><tbody>
+          ? `<div class="scroll"><table class="table fleet-table"><thead><tr><th><input type="checkbox" data-all aria-label="Select all" ${n && n === rows.length ? 'checked' : ''}></th>${th('name', 'Train')}${th('engine', 'Engine')}${th('state', 'Status')}${th('age', 'Age')}${th('reliability', 'Rel.', 'Engine reliability')}${th('load', 'Load', 'Share of cars loaded on departure')}${th('profit', 'Profit/yr', 'Net profit over the last 12 months')}${th('last', 'Last year')}${th('breakdown', 'Breakdown', 'Last breakdown')}</tr></thead><tbody>
         ${rows
-          .map(
-            (t) => `<tr data-train="${t.id}" tabindex="0"><td>${esc(t.name)}</td><td>${esc(engineDef(t).name)}</td><td class="${t.state === 'noroute' || t.state === 'broken' ? 'bad' : ''}">${esc(STATE_LABEL[t.state])}</td><td>${years(engineAgeYears(t, game.tick))}</td><td class="${t.stats.revenue - t.stats.costs < 0 ? 'bad' : ''}">${fmtMoney(t.stats.revenue - t.stats.costs)}</td><td>${fmtMoney(t.stats.lastRevenue - t.stats.lastCosts)}</td><td>${fmtInt(t.stats.deliveries)}</td></tr>`,
-          )
+          .map((t) => {
+            const e = engineDef(t);
+            const age = engineAgeYears(t, game.tick);
+            const p = annualProfit(t);
+            return `<tr data-train="${t.id}" tabindex="0" class="${st.selected.has(t.id) ? 'sel' : ''}">
+              <td><input type="checkbox" data-pick="${t.id}" aria-label="Select ${esc(t.name)}" ${st.selected.has(t.id) ? 'checked' : ''}></td>
+              <td>${esc(t.name)}</td><td>${esc(e.name)}</td>
+              <td class="${t.state === 'noroute' || t.state === 'broken' ? 'bad' : ''}">${esc(STATE_LABEL[t.state])}</td>
+              <td class="${age > e.lifespan ? 'warn' : ''}">${years(age)}</td>
+              <td>${Math.round(e.reliability * 100)}%</td>
+              <td class="${t.stats.loadFactor >= 0 && t.stats.loadFactor < 0.3 ? 'warn' : ''}">${t.stats.loadFactor >= 0 ? `${Math.round(t.stats.loadFactor * 100)}%` : '—'}</td>
+              <td class="${p < 0 ? 'bad' : ''}">${fmtMoney(Math.round(p))}</td>
+              <td>${fmtMoney(t.stats.lastRevenue - t.stats.lastCosts)}</td>
+              <td>${ago(t.stats.lastBreakdownTick)}</td></tr>`;
+          })
           .join('')}
         </tbody></table></div>`
           : '<p class="hint">No trains yet. Build two stations, connect them with track and buy a train.</p>'
       }
+      <div class="section">Route templates</div>
+      ${
+        tpls.length
+          ? `<table class="table compact"><tbody>${tpls
+              .map(
+                (t) => `<tr><td>${esc(t.name)}</td><td>${esc(ENGINE_NAME(t.engine))} · ${t.cargos.length} cars</td>
+                <td class="right"><button class="btn small" data-tbuy="${t.id}">Buy</button> <button class="btn small" data-tbuyr="${t.id}">Buy reversed</button> <button class="btn small" data-tdel="${t.id}" aria-label="Delete template">×</button></td></tr>`,
+              )
+              .join('')}</tbody></table>`
+          : '<p class="hint">Save a train as a template from its panel (<b>Save template</b>) to buy copies or reuse its route.</p>'
+      }
       <div class="actions"><button class="btn" data-act="close">Close</button><button class="btn primary" data-act="new">New train</button></div>`;
+    bind(rows);
+  };
+  const done = (r: BulkResult, verb: string) => {
+    host.toast(r.done ? `${verb} ${r.done} train${r.done === 1 ? '' : 's'}${r.cost ? ` (${fmtMoney(Math.round(r.cost))})` : ''}${r.failed ? ` · ${r.failed} failed: ${r.errors.join(' ')}` : ''}` : r.errors.join(' ') || 'Nothing to do.', r.done ? 'money' : 'error');
+    host.invalidatePanel();
+    openFleet(host);
+  };
+  const bind = (rows: Train[]) => {
     root.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((b) =>
       b.addEventListener('click', () => {
         const k = b.dataset.sort as SortKey;
-        if (k === sort) desc = !desc;
+        if (k === st.sort) st.desc = !st.desc;
         else {
-          sort = k;
-          desc = true;
+          st.sort = k;
+          st.desc = true;
         }
         render();
       }),
     );
-    root.querySelectorAll<HTMLElement>('[data-train]').forEach((r) => {
+    root.querySelectorAll<HTMLInputElement>('[data-pick]').forEach((c) => {
+      c.addEventListener('click', (e) => e.stopPropagation());
+      c.addEventListener('change', () => {
+        const id = Number(c.dataset.pick);
+        if (c.checked) st.selected.add(id);
+        else st.selected.delete(id);
+        render();
+      });
+    });
+    root.querySelector<HTMLInputElement>('[data-all]')?.addEventListener('change', (e) => {
+      st.selected = new Set((e.target as HTMLInputElement).checked ? rows.map((t) => t.id) : []);
+      render();
+    });
+    root.querySelectorAll<HTMLButtonElement>('[data-selq]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const q = b.dataset.selq;
+        const pick =
+          q === 'all' ? rows : q === 'none' ? [] : selectTrains(game, q === 'old' ? { pastLifespan: true } : q === 'old25' ? { olderThan: 25 } : q === 'losing' ? { losing: true } : { loadBelow: 0.3 });
+        st.selected = new Set(pick.map((t) => t.id));
+        render();
+      }),
+    );
+    root.querySelector('[data-bulk="upgrade"]')?.addEventListener('click', () => {
+      const ids = [...st.selected];
+      const cost = ids.reduce((a, id) => {
+        const t = game.trains.byId(id);
+        const best = t && game.bestEngineFor(t);
+        return a + (t && best ? best.price - engineTradeIn(t, game.tick) : 0);
+      }, 0);
+      confirmModal(host, `Upgrade ${ids.length} engine${ids.length === 1 ? '' : 's'}?`, `Each gets the best engine on sale; after trade-ins this costs about ${fmtMoney(Math.round(cost))}.`, 'Upgrade').then((yes) => {
+        if (!yes) return openFleet(host);
+        done(upgradeEngines(game, ids), 'Upgraded');
+      });
+    });
+    root.querySelector('[data-bulk="sell"]')?.addEventListener('click', () => {
+      const ids = [...st.selected];
+      const value = ids.reduce((a, id) => {
+        const t = game.trains.byId(id);
+        return a + (t ? resaleValue(t, game.tick) : 0);
+      }, 0);
+      confirmModal(host, `Sell ${ids.length} train${ids.length === 1 ? '' : 's'}?`, `You receive about ${fmtMoney(Math.round(value))}. Cargo on board is lost.`, 'Sell').then((yes) => {
+        if (!yes) return openFleet(host);
+        st.selected.clear();
+        done(sellTrains(game, ids), 'Sold');
+      });
+    });
+    root.querySelector('[data-bulk="route"]')?.addEventListener('click', () => {
+      const ids = [...st.selected];
+      const mm = host.openModal(`<h2>Route for ${ids.length} train${ids.length === 1 ? '' : 's'}</h2>
+        <p>Pick a template; its route replaces theirs (cars stay as they are).</p>
+        <div class="actions wrap">${game.templates.map((t) => `<button class="btn small" data-use="${t.id}">${esc(t.name)}</button>`).join('')}</div>
+        <div class="actions"><button class="btn" data-a="no">Cancel</button></div>`);
+      mm.querySelector('[data-a="no"]')!.addEventListener('click', () => openFleet(host));
+      mm.querySelectorAll<HTMLElement>('[data-use]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const tpl = game.templates.find((t) => t.id === Number(b.dataset.use))!;
+          done(setRoutes(game, ids, tpl.route), 'Re-routed');
+        }),
+      );
+    });
+    root.querySelectorAll<HTMLElement>('[data-tbuy], [data-tbuyr]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const rev = b.dataset.tbuyr !== undefined;
+        const r = game.buyFromTemplate(Number(b.dataset.tbuy ?? b.dataset.tbuyr), rev);
+        host.toast(r.ok ? `Bought ${r.train!.name} (${fmtMoney(r.cost)})` : r.error ?? 'Cannot buy.', r.ok ? 'money' : 'error');
+        host.invalidatePanel();
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLElement>('[data-tdel]').forEach((b) =>
+      b.addEventListener('click', () => {
+        game.deleteTemplate(Number(b.dataset.tdel));
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLElement>('tr[data-train]').forEach((r) => {
       const go = () => {
         host.closeModal();
         host.selectTrain(Number(r.dataset.train));
@@ -520,3 +686,5 @@ export function openFleet(host: TrainUiHost & { follow(id: number): void }): voi
   };
   render();
 }
+
+const ENGINE_NAME = (id: string) => ENGINE_BY_ID.get(id)?.name ?? id;

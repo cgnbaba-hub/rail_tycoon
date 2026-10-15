@@ -6,7 +6,7 @@ import type { World } from '../sim/world';
 import { drawText, measureText, TEXT_HEIGHT } from './bitmapText';
 import type { Camera } from './camera';
 import { project, rotatedSize, tileToView, toView, vecToView, type Rot } from './iso';
-import { PALETTE } from './palette';
+import { PALETTE, PALETTE_NAMES, PALETTE_U32, colorIndex } from './palette';
 import { pickTile } from './pick';
 import { CHUNK, WorldRenderData, renderChunk } from './terrain';
 import { loadLook, vehicleSprite } from './trainSprites';
@@ -27,6 +27,19 @@ export interface Highlight {
   color: string;
   /** Draw every other pixel run (a pattern, so meaning isn't carried by colour alone). */
   dashed?: boolean;
+}
+
+/**
+ * A heat map over the terrain: one value per tile (NaN = none), bucketed by `thresholds`
+ * (value ≥ thresholds[k] → bucket k+1). Each bucket has a colour and a dither density, so
+ * magnitude reads from the pattern as well as the colour.
+ */
+export interface HeatMap {
+  values: Float32Array;
+  thresholds: number[];
+  colors: string[];
+  /** Fraction of pixels painted per bucket: 0.25, 0.5 or 0.75. */
+  density: number[];
 }
 
 /** Transient drawings requested by the active tool. */
@@ -97,6 +110,8 @@ export class Renderer {
   hover: Highlight | null = null;
   selection: Highlight | null = null;
   overlay: Overlay = { highlights: [] };
+  heat: HeatMap | null = null;
+  private heatCache: { heat: HeatMap; key: string; canvas: HTMLCanvasElement } | null = null;
   /** Number of chunks still missing after the last frame (for a loading hint). */
   pendingChunks = 0;
   /** Incremented whenever world tiles changed (minimap etc. can refresh). */
@@ -153,6 +168,7 @@ export class Renderer {
     camera.viewH = this.canvas.height;
 
     this.drawChunks(camera);
+    if (this.heat) this.drawHeat(camera, this.heat);
     for (const h of this.overlay.highlights) this.drawHighlight(camera, h);
     if (this.selection) this.drawHighlight(camera, this.selection);
     if (this.hover) this.drawHighlight(camera, this.hover);
@@ -427,6 +443,61 @@ export class Renderer {
     }
   }
 
+  /**
+   * Paint the heat map straight into the frame's pixels: every tile is a filled quad whose
+   * pixels are set through an ordered-dither mask, so only palette colours appear and the
+   * terrain shows through.
+   */
+  private drawHeat(camera: Camera, heat: HeatMap): void {
+    const world = this.world;
+    const W = world.width;
+    const vw = this.canvas.width;
+    const vh = this.canvas.height;
+    // Redraw only when the view or the data changed; otherwise blit the cached layer.
+    const [ox, oy] = camera.worldToScreen(0, 0, 0);
+    const key = `${vw}x${vh}|${camera.rot}|${camera.tw}|${camera.scale}|${Math.round(ox)},${Math.round(oy)}|${this.world.editVersion}`;
+    if (this.heatCache && this.heatCache.heat === heat && this.heatCache.key === key) {
+      this.ctx.drawImage(this.heatCache.canvas, 0, 0);
+      return;
+    }
+    const layer = this.heatCache?.canvas ?? document.createElement('canvas');
+    layer.width = vw;
+    layer.height = vh;
+    const img = new ImageData(vw, vh);
+    const px = new Uint32Array(img.data.buffer);
+    const colors = heat.colors.map((c) => PALETTE_U32[colorIndex(PALETTE_NAME_BY_HEX.get(c) ?? 'fog')]);
+    const masks = heat.density.map((d) => (d >= 0.75 ? 3 : d >= 0.5 ? 2 : 1));
+    const margin = camera.tw * camera.scale;
+    const th = heat.thresholds;
+    const xs = [0, 0, 0, 0];
+    const ys = [0, 0, 0, 0];
+    for (let i = 0; i < heat.values.length; i++) {
+      const v = heat.values[i];
+      if (Number.isNaN(v)) continue;
+      const x = i % W;
+      const y = (i - x) / W;
+      const [cx, cy] = camera.worldToScreen(x + 0.5, y + 0.5, world.vh(x, y));
+      if (cx < -margin || cx > vw + margin || cy < -margin || cy > vh + margin * 2) continue;
+      let b = 0;
+      while (b < th.length && v >= th[b]) b++;
+      const corners: Array<[number, number]> = [
+        [x, y],
+        [x + 1, y],
+        [x + 1, y + 1],
+        [x, y + 1],
+      ];
+      for (let k = 0; k < 4; k++) {
+        const [sx, sy] = camera.worldToScreen(corners[k][0], corners[k][1], world.vh(corners[k][0], corners[k][1]));
+        xs[k] = sx;
+        ys[k] = sy - 1;
+      }
+      fillQuad(px, vw, vh, xs, ys, colors[b], masks[b]);
+    }
+    layer.getContext('2d')!.putImageData(img, 0, 0);
+    this.heatCache = { heat, key, canvas: layer };
+    this.ctx.drawImage(layer, 0, 0);
+  }
+
   private drawHighlight(camera: Camera, hl: Highlight): void {
     const world = this.world;
     const [x, y, w, h] = hl.rect;
@@ -531,6 +602,42 @@ export class Renderer {
       const rival = st.owner !== 0 ? PALETTE[this.ownerColors[st.owner] as keyof typeof PALETTE] : undefined;
       if (rival) this.label(sx, sy + 6 * camera.scale, st.name, PALETTE.cream, PALETTE.night, rival);
       else this.label(sx, sy + 6 * camera.scale, st.name, PALETTE.cream, PALETTE.oxblood, PALETTE.gold);
+    }
+  }
+}
+
+const PALETTE_NAME_BY_HEX = new Map<string, string>(PALETTE_NAMES.map((n) => [PALETTE[n], n]));
+
+/**
+ * Scanline-fill a convex quad, writing `color` where the dither mask allows:
+ * mask 1 = one pixel in four, 2 = checkerboard, 3 = three in four.
+ */
+export function fillQuad(px: Uint32Array, w: number, h: number, xs: number[], ys: number[], color: number, mask: number): void {
+  const y0 = Math.max(0, Math.ceil(Math.min(ys[0], ys[1], ys[2], ys[3])));
+  const y1 = Math.min(h - 1, Math.floor(Math.max(ys[0], ys[1], ys[2], ys[3]) - 1e-6));
+  for (let y = y0; y <= y1; y++) {
+    const yc = y + 0.5;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 4; k++) {
+      const ax = xs[k];
+      const ay = ys[k];
+      const bx = xs[(k + 1) & 3];
+      const by = ys[(k + 1) & 3];
+      if ((ay <= yc && by > yc) || (by <= yc && ay > yc)) {
+        const xi = ax + ((yc - ay) / (by - ay)) * (bx - ax);
+        if (xi < lo) lo = xi;
+        if (xi > hi) hi = xi;
+      }
+    }
+    if (lo > hi) continue;
+    const xa = Math.max(0, Math.ceil(lo - 0.5));
+    const xb = Math.min(w - 1, Math.floor(hi - 0.5));
+    const row = y * w;
+    for (let x = xa; x <= xb; x++) {
+      const odd = (x & 1) + ((y & 1) << 1);
+      const on = mask === 2 ? (x + y) % 2 === 0 : mask === 1 ? odd === 0 : odd !== 3;
+      if (on) px[row + x] = color;
     }
   }
 }

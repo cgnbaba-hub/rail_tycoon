@@ -1,5 +1,6 @@
 import { AI, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
 import { AIBaron } from './ai';
+import { Statistics } from './stats';
 import { boardVote, checkSolvency, type BoardVote } from './rivals';
 import { Chairman, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
 import { Company, type ExpenseCategory, type YearRecord } from './company';
@@ -89,6 +90,15 @@ export interface YearEndReport {
   board?: BoardVote;
 }
 
+/** A train recipe: engine, cars and route, to create more trains like it. */
+export interface RouteTemplate {
+  id: number;
+  name: string;
+  engine: string;
+  cargos: string[];
+  route: RouteStop[];
+}
+
 export interface UndoEntry {
   label: string;
   day: number;
@@ -162,6 +172,11 @@ export class Game {
   /** Ticks since Jan 1 of the start year. */
   tick = 0;
   readonly undoStack: UndoEntry[] = [];
+  /** Monthly history for the statistics screen. */
+  readonly stats = new Statistics();
+  /** Saved routes + consists for new trains ("route templates"). */
+  readonly templates: RouteTemplate[] = [];
+  private nextTemplateId = 1;
   private readonly growthRng: Rng;
   private readonly marketRng: Rng;
   private listeners: Array<(e: GameEvent) => void> = [];
@@ -242,6 +257,10 @@ export class Game {
     return dayToDate(this.day, this.params.startYear);
   }
 
+  dateOf(day: number): GameDate {
+    return dayToDate(day, this.params.startYear);
+  }
+
   get year(): number {
     return this.params.startYear + Math.floor(this.day / 365);
   }
@@ -273,6 +292,7 @@ export class Game {
         this.trains.monthly();
         this.chargeTrackMaintenance();
         for (const ai of this.ai) ai.monthly(this);
+        this.stats.sample(this);
         this.emit({ type: 'month', date });
         if (date.month === 0) {
           this.financeYearly();
@@ -923,6 +943,42 @@ export class Game {
     t.engine = best.id;
     t.engineBuiltTick = this.tick;
     return { ok: true, cost };
+  }
+
+  /** Save a train's engine, cars and route as a template. */
+  saveTemplate(trainId: number, name?: string): RouteTemplate | null {
+    const t = this.trains.byId(trainId);
+    if (!t || t.owner !== this.company.id) return null;
+    const stops = t.route.map((r) => this.world.stations[r.station]?.name ?? '?');
+    const tpl: RouteTemplate = {
+      id: this.nextTemplateId++,
+      name: name?.trim() || stops.join(' – '),
+      engine: t.engine,
+      cargos: t.cars.map((c) => c.cargo),
+      route: t.route.map((r) => ({ ...r })),
+    };
+    this.templates.push(tpl);
+    return tpl;
+  }
+
+  deleteTemplate(id: number): boolean {
+    const i = this.templates.findIndex((t) => t.id === id);
+    if (i < 0) return false;
+    this.templates.splice(i, 1);
+    return true;
+  }
+
+  /** Buy a train from a template, with the best engine on sale if the saved one no longer is. */
+  buyFromTemplate(id: number, reverse = false): CommandResult & { train?: Train } {
+    const tpl = this.templates.find((t) => t.id === id);
+    if (!tpl) return { ok: false, error: 'No such template.', cost: 0 };
+    const sale = enginesAvailable(this.year);
+    const engine = sale.some((e) => e.id === tpl.engine)
+      ? tpl.engine
+      : sale.filter((e) => e.maxCars >= tpl.cargos.length).sort((a, b) => b.power * b.topSpeed - a.power * a.topSpeed)[0]?.id;
+    if (!engine) return { ok: false, error: 'No suitable engine on sale.', cost: 0 };
+    const route = reverse ? [...tpl.route].reverse() : tpl.route;
+    return this.buyTrain(engine, tpl.cargos, route.map((r) => ({ ...r })));
   }
 
   duplicateTrain(id: number, c: Company = this.company): CommandResult & { train?: Train } {

@@ -16,6 +16,7 @@ import carsJson from './cars.json';
 import economyJson from './economy.json';
 import financeJson from './finance.json';
 import aiJson from './ai.json';
+import advisorJson from './advisor.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -434,6 +435,20 @@ export interface AiData {
 }
 
 export const AI: AiData = aiJson as unknown as AiData;
+export interface AdvisorData {
+  waitingLoads: number;
+  lowLoadFactor: number;
+  minDepartures: number;
+  losingMonths: number;
+  signalWaitDays: number;
+  saturatedDemand: number;
+  lowCash: number;
+  badRatingIndex: number;
+  rivalStakeNotice: number;
+  confidenceDrop: number;
+  maxItems: number;
+}
+export const ADVISOR: AdvisorData = advisorJson as AdvisorData;
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];

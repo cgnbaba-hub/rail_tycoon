@@ -215,3 +215,29 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   label rules in their colour, the minimap draws rival track in their colour; track itself is
   not recoloured on the main map to keep the strict palette readable.
 
+## Insight tools (M7)
+- **Statistics are sampled, not reconstructed:** at each month end the game stores one small
+  sample (per company, per investor, per train, per station). Revenue uses "since last
+  sample" accumulators, so the yearly resets of the books can never double-count or drop a
+  month. 240 samples (20 years) are kept.
+- **Overlays are fields, not special renderers:** the sim computes one number per tile
+  (`computeOverlay`) and the renderer only knows "heat map with thresholds". Supply and demand
+  are summed over a station-size window (summed-area table), so the value reads as "what a
+  station here would collect / absorb". Fields refresh monthly or when you change them.
+- **Heat maps stay inside the palette:** they are rasterised into a transparent layer with an
+  ordered-dither mask (¼, ½, ¾ of the pixels), never alpha-blended, and cached until the view
+  or the data changes. Magnitude is carried by both colour and dither density; the ramps
+  avoid red/green pairs.
+- **Traffic, route profit and congestion** are per-tile counters fed by the trains themselves
+  (every node entered, every tick blocked at a signal, every breakdown) and multiplied by 0.7
+  each month, so they show recent conditions without storing histories.
+- **Advice is derived, never stored:** `advise(game)` re-reads the state, so an item vanishes
+  once its cause is fixed. Dismissals are by stable key (e.g. `wait:<station>:<cargo>`) and
+  last for the session. Rivals' trains and stations are ignored.
+- **Bulk actions reuse the single-train commands** (upgrade, sell, set route), so their rules
+  (cash, ownership, game over) stay in one place; failures are counted and reported.
+- **Templates** copy engine, cars and route; if the engine is no longer on sale the best
+  engine that can pull the cars is used.
+- **Tooltips** are the game's own pixel tooltips (multi-line, formulas spelled out) instead of
+  browser `title`s, which are slow, unstyled and invisible to touch users.
+

@@ -165,6 +165,8 @@ export class Company {
   profitTrend = 0;
   /** Net profit per month, newest last (up to 24). */
   readonly monthlyNet: number[] = [];
+  /** Revenue by cargo since the statistics last sampled it (see stats.ts). */
+  readonly sampleRevenue = new Map<string, number>();
 
   readonly stock: StockState;
   readonly history: YearRecord[] = [];
@@ -228,6 +230,7 @@ export class Company {
     const y = this.bucket(this.revenue, year);
     y.set(cargo, (y.get(cargo) ?? 0) + amount);
     this.monthNet += amount;
+    this.sampleRevenue.set(cargo, (this.sampleRevenue.get(cargo) ?? 0) + amount);
   }
 
   /** Non-freight income such as profits from owned industries. */

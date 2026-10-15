@@ -153,6 +153,65 @@ const OUT = process.argv[2] || 'screenshots';
   await page.mouse.move(600, 500);
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${OUT}/10-whole-map.png` });
+  // 22–27. insight tools (M7)
+  await page.evaluate(() => {
+    const app = window.ironBaron;
+    const g = app.game;
+    app.camera.rotate(-1);
+    const st = g.world.liveStations().filter((s) => s.owner === 0)[1];
+    const W = g.world.width;
+    app.camera.zoomAt(app.canvas.width / 2, app.canvas.height / 2, 1);
+    app.camera.centerOn(st.tiles[0] % W, Math.floor(st.tiles[0] / W));
+    app.pinned = null;
+    app.selectTrain(null);
+    g.saveTemplate(g.trains.trains.find((t) => t.owner === 0).id);
+  });
+  await page.keyboard.press('u');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/22-advisor.png` });
+  await page.click('[data-tab="deliveries"]');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/23-delivery-formulas.png` });
+  await page.click('[data-tab="advice"]');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('k');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/24-statistics.png` });
+  await page.click('[data-tab="worth"]');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/25-statistics-worth.png` });
+  await page.click('[data-tab="revenue"]');
+  await page.keyboard.press('Escape');
+  for (const [kind, n] of [['supply', 26], ['congestion', 27], ['gradient', 28]]) {
+    await page.keyboard.press('j');
+    await page.waitForTimeout(200);
+    await page.click(`[data-ov="${kind}"]`);
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `${OUT}/${n}-overlay-${kind}.png` });
+  }
+  await page.keyboard.press('Shift+J');
+  await page.keyboard.press('y');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/29-supply-chains.png` });
+  await page.click('[data-cargo="coal"]');
+  await page.evaluate(() => {
+    const app = window.ironBaron;
+    app.camera.zoomAt(app.canvas.width / 2, app.canvas.height / 2, 0);
+    app.camera.centerOn(app.game.world.width / 2, app.game.world.height / 2);
+  });
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${OUT}/30-chain-coal.png` });
+  await page.keyboard.press('Shift+J');
+  await page.keyboard.press('f');
+  await page.waitForTimeout(200);
+  await page.click('[data-selq="all"]');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/31-train-table.png` });
+  await page.keyboard.press('Escape');
+  await page.hover('#stock');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/32-formula-tooltip.png` });
+  await page.mouse.move(600, 500);
   // 18–21. rivals (M6)
   await page.evaluate(() => window.ironBaron.camera.rotate(-1));
   await page.keyboard.press('o');

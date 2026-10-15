@@ -41,7 +41,7 @@ tests/      Vitest specs for sim + pure render math
 | M4 | Economy ✅ | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
 | M5 | Finance ✅ | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers ✅ | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
-| M7 | Improved UI | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
+| M7 | Improved UI ✅ | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
 | M8 | Content & polish | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
 
 Every milestone: `npm test` green, `npm run build` green, commit, short summary.
@@ -141,4 +141,17 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] Game over (taken over, bankrupt, voted out) with "keep watching" as an investor
 - [x] UI: new-game options (rivals 0–3, skill, attitude), Railroads window (`O`: companies, chairmen, prices, book value, profit, stakes, ownership pies, takeover vote preview, board confidence), trade any company from the portfolio, rival colours (station roofs and labels, minimap track), owner in the inspector, read-only rival trains, rival news and warnings, board vote in the year-end report, game-over dialog
 - [x] Tests: founding of rivals, ownership rules, billing, undo isolation, AI determinism and building, friendly mode, merger rules/vote/execution/cooldown, takeover of the player, bankruptcy (direct and after insolvency, player game over), board vote and removal after two strikes
+
+## M7 detailed checklist
+
+- [x] Monthly statistics (revenue by cargo, net profit, share price, market and book value per company; everyone's net worth; profit per train and revenue per station), 20 years kept
+- [x] Per-train load factor (moving average at departure), 12-month profit history, per-tile traffic, route profit and congestion counters that fade monthly
+- [x] Map overlays (`J`): supply and demand per cargo (station-size catchment), town growth, station catchment, route profit, traffic, congestion, gradient — pixel-exact ordered-dither heat maps with a legend; colour-blind-safe ramps (light blue → red, orange ↔ blue) and dither density that grows with the value
+- [x] Supply-chain explorer (`Y`): the cargo chains of this map as a diagram; clicking a cargo shows its supply overlay and outlines producers (solid) and users (dashed)
+- [x] Advisor (`U`, badge on the rail): waiting cargo, idle stations, saturated demand, stuck/unrouted/low-load/loss-making/worn-out trains, low cash, bad rating, margin, rival stakes, board support, confidence swings; dismissable and filterable; news log; delivery list with the full revenue formula; "Show" jumps to the train/station/company
+- [x] Train table: sortable by profit/yr, age, reliability, load, last year, last breakdown; checkboxes and quick selections (worn out, > 25 years, losing, low load); bulk upgrade, sell and re-route
+- [x] Route templates: save a train's engine, cars and route; buy copies (also reversed) from the train table or start the new-train dialog from one; apply a template's route to many trains
+- [x] Statistics screen (`K`): revenue by cargo (stacked), profit, per-train and per-station sparklines, market value of all railroads, net worth of you vs. the barons (dash patterns + colours)
+- [x] Formula tooltips: share price (fair-value formula), net worth, company cash (revenue − costs), demand gauges (saturation and recovery), multi-line pixel tooltips everywhere instead of browser titles
+- [x] Tests: statistics add up to the books, monthly train profit and load factor, window sums, supply/demand/traffic/profit/congestion/gradient/catchment fields, advisor rules and ordering, templates (incl. reversed), fleet selection and bulk upgrade/sell
 

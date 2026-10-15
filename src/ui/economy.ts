@@ -57,7 +57,7 @@ export function economyChipHtml(game: Game): string {
   const s = c.current;
   const trend = confidenceTrend(game);
   const arrow = trend > 4 ? '▲' : trend < -4 ? '▼' : '•';
-  return `<span class="econ-state s-${s.id}">${esc(s.symbol)} ${esc(s.name)}</span><span class="econ-conf" title="Business confidence">${Math.round(c.confidence)} <i class="${trend > 4 ? 'up' : trend < -4 ? 'down' : ''}">${arrow}</i></span>`;
+  return `<span class="econ-state s-${s.id}">${esc(s.symbol)} ${esc(s.name)}</span><span class="econ-conf" data-tip="Business confidence">${Math.round(c.confidence)} <i class="${trend > 4 ? 'up' : trend < -4 ? 'down' : ''}">${arrow}</i></span>`;
 }
 
 export function economyTip(game: Game): string {
@@ -143,8 +143,14 @@ export function stationDemandHtml(game: Game, st: Station): string {
       const level = game.economy.demandLevel(st.id, cargo);
       const days = daysToRecover(level);
       const cap = se.capacity[cargo] ?? 0;
-      const tip = `${CARGO_BY_ID.get(cargo)?.name ?? cargo}: demand ${pct(level)} (price paid). Absorbs about ${cap.toFixed(1)} loads/month; ${days > 0 ? `back to 90% in ~${Math.ceil(days)} days without deliveries` : 'fully recovered'}.`;
-      return `<div class="gauge demand" title="${esc(tip)}">${cargoChip(cargo)}<span class="bar"><i class="${levelClass(level)}" style="width:${pct(level)}"></i></span><b>${pct(level)}</b>${sparkline(sc.history[cargo] ?? [])}</div>`;
+      const SAT = ECONOMY.saturation;
+      const perLoad = (SAT.dropPerCapacity * ECONOMY.models[game.economy.model].saturation) / Math.max(0.5, cap);
+      const tip = [
+        `${CARGO_BY_ID.get(cargo)?.name ?? cargo}: demand ${pct(level)} (share of the full price paid).`,
+        `Each load delivered lowers it by ${SAT.dropPerCapacity} × ${ECONOMY.models[game.economy.model].saturation} ÷ ${cap.toFixed(1)} loads/month capacity = ${(perLoad * 100).toFixed(1)} points (floor ${pct(SAT.floor)}).`,
+        `Half the gap to 100% recovers every ${SAT.recoveryHalfLifeDays} days: ${days > 0 ? `back to 90% in ~${Math.ceil(days)} days without deliveries` : 'fully recovered'}.`,
+      ].join('\n');
+      return `<div class="gauge demand" data-tip="${esc(tip)}">${cargoChip(cargo)}<span class="bar"><i class="${levelClass(level)}" style="width:${pct(level)}"></i></span><b>${pct(level)}</b>${sparkline(sc.history[cargo] ?? [])}</div>`;
     })
     .join('');
   return `<div class="section">Demand (price paid) · ${esc(ECONOMY.models[game.economy.model].name)}</div>${rows}
@@ -154,7 +160,7 @@ export function stationDemandHtml(game: Game, st: Station): string {
 export function improvementsHtml(game: Game, st: Station): string {
   const have = st.improvements ?? [];
   const built = have.map((id) => IMPROVEMENT_BY_ID.get(id)).filter((d) => d !== undefined);
-  const builtHtml = built.length ? `<div class="cars">${built.map((d) => `<span class="chip" title="${esc(d.desc)}">✓ ${esc(d.name)}</span>`).join(' ')}</div>` : '';
+  const builtHtml = built.length ? `<div class="cars">${built.map((d) => `<span class="chip" data-tip="${esc(d.desc)}">✓ ${esc(d.name)}</span>`).join(' ')}</div>` : '';
   const options = IMPROVEMENTS.filter((d) => !have.includes(d.id))
     .map((d) => {
       const blocker = game.improvementBlocker(st.id, d.id);
@@ -233,8 +239,8 @@ export function townGrowthHtml(game: Game, city: City): string {
   const g = city.growth ?? ECONOMY.cityGrowth.naturalPerYear * game.economy.cycle.growthFactor;
   return `<div class="section">Growth</div>
     ${row('Growth rate', `<span class="${g > 0.02 ? 'good' : g <= 0 ? 'bad' : ''}">${(g * 100).toFixed(1)}% / yr</span>`)}
-    <div class="gauge" title="Share of the town's passengers and mail your trains pick up (vs. target)">Passengers<span class="bar"><i class="${levelClass(service)}" style="width:${pct(service)}"></i></span><b>${pct(service)}</b><small></small></div>
-    <div class="gauge" title="Demanded goods delivered to the town (vs. target)">Goods<span class="bar"><i class="${levelClass(supplied)}" style="width:${pct(supplied)}"></i></span><b>${pct(supplied)}</b><small></small></div>
+    <div class="gauge" data-tip="Share of the town's passengers and mail your trains pick up (vs. target)">Passengers<span class="bar"><i class="${levelClass(service)}" style="width:${pct(service)}"></i></span><b>${pct(service)}</b><small></small></div>
+    <div class="gauge" data-tip="Demanded goods delivered to the town (vs. target)">Goods<span class="bar"><i class="${levelClass(supplied)}" style="width:${pct(supplied)}"></i></span><b>${pct(supplied)}</b><small></small></div>
     ${next ? row(`${next.name} at`, fmtInt(next.popMin)) : ''}
     <p class="hint">Towns grow faster with good passenger service and deliveries of what they demand; the economic cycle speeds or stalls growth.</p>`;
 }
@@ -252,7 +258,7 @@ export function lastDeliveryHtml(game: Game, t: Train): string {
     .map(
       (q) => `<div class="formula-row">
         <div class="kv"><span>${cargoChip(q.cargo)} ×${fmtInt(q.loads)}</span><b>${fmtMoney(q.total)}</b></div>
-        <small title="Pay per load (base + per mile × ${q.miles.toFixed(1)} mi) × time × demand × economy × bonus">${fmtMoney(q.distancePay)} × ${f(q.timeFactor)} time × ${f(q.demandFactor)} demand × ${f(q.economyFactor)} econ × ${f(q.bonusFactor)} bonus</small>
+        <small data-tip="Pay per load (base + per mile × ${q.miles.toFixed(1)} mi) × time × demand × economy × bonus">${fmtMoney(q.distancePay)} × ${f(q.timeFactor)} time × ${f(q.demandFactor)} demand × ${f(q.economyFactor)} econ × ${f(q.bonusFactor)} bonus</small>
       </div>`,
     )
     .join('');

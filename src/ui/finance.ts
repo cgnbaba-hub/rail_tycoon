@@ -55,6 +55,33 @@ export function stockChipHtml(game: Game): string {
   return `<span class="tick">${esc(c.ticker)}</span> ${fmtPrice(c.stock.price)} <i class="${tone(ch)}">${ch >= 0 ? '+' : '−'}${Math.abs(ch * 100).toFixed(1)}%</i>`;
 }
 
+/** Tooltip with the share-price formula (multi-line). */
+export function stockTip(game: Game): string {
+  const c = game.company;
+  const f = game.fair();
+  const m = (v: number) => fmtMoney(Math.round(v));
+  return [
+    `${c.ticker} ${fmtPrice(c.stock.price)} — click for the stock window`,
+    `Fair value = (book ${m(f.book)} + profits ${m(f.earnings)} + dividends ${m(f.dividends)}) × mood ${f.mood.toFixed(2)}`,
+    `= ${m(f.total)} ÷ ${fmtInt(c.shares)} shares = ${fmtPrice(f.perShare)}`,
+    `The price moves 5% of the gap a day, plus noise.`,
+  ].join('\n');
+}
+
+export function personalTip(game: Game): string {
+  const acc = account(game.chairman, game.activeCompanies);
+  const m = (v: number) => fmtMoney(Math.round(v));
+  return [`Your net worth — click for your portfolio`, `= cash ${m(acc.cash)} + shares ${m(acc.longValue)}${acc.shortValue ? ` − shorts ${m(acc.shortValue)}` : ''} = ${m(acc.equity)}`].join('\n');
+}
+
+export function cashTip(game: Game): string {
+  const c = game.company;
+  const y = game.year;
+  const m = (v: number) => fmtMoney(Math.round(v));
+  const rev = c.revenueIn(y) + c.otherIncomeIn(y);
+  return [`Company cash`, `${y} so far: revenue ${m(rev)} − operating costs ${m(c.operatingCostsIn(y))} = operating profit ${m(c.operatingProfitIn(y))}`, `Net profit after interest & depreciation: ${m(c.netProfitIn(y))}`].join('\n');
+}
+
 export function personalChipHtml(game: Game): string {
   return `<span class="label">You</span><span class="${game.netWorth() < 0 ? 'bad' : ''}">${fmtMoney(Math.round(game.netWorth()))}</span>`;
 }
@@ -329,7 +356,7 @@ function portfolioHtml(game: Game, amount: number): string {
       ${acc.shortValue ? row('Short positions', money(-acc.shortValue)) : ''}
       ${row('Net worth', money(acc.equity), 'total')}
       <div class="section">Margin</div>
-      <div class="margin-bar" title="Equity as a share of positions: below ${M.maintenance * 100}% triggers a margin call; new trades need ${M.initial * 100}%">
+      <div class="margin-bar" data-tip="Equity as a share of positions: below ${M.maintenance * 100}% triggers a margin call; new trades need ${M.initial * 100}%">
         <span class="bar"><i class="${ratio < M.maintenance * 1.2 ? 'low' : ratio < M.initial ? 'warn' : 'ok'}" style="width:${bar}%"></i><em style="left:${M.maintenance * 100}%"></em><em class="init" style="left:${M.initial * 100}%"></em></span>
         <b>${Number.isFinite(acc.ratio) ? `${Math.round(acc.ratio * 100)}%` : '—'}</b></div>
       ${row(`Margin call if ${c.ticker} falls to`, liq !== null ? `<span class="bad">${fmtPrice(liq)}</span>` : 'never')}

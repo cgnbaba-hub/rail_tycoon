@@ -12,13 +12,17 @@ import { inspectTile, type Inspection } from './inspector';
 import { Minimap } from './minimap';
 import { crispFontSize } from './theme';
 import { BulldozeTool, StationTool, TrackTool, fmtMoney, type Tool, type ToolHost } from './tools';
-import { openFinance, openYearEnd, personalChipHtml, stockChipHtml, yearEndEnabled } from './finance';
+import { cashTip, openFinance, openYearEnd, personalChipHtml, personalTip, stockChipHtml, stockTip, yearEndEnabled } from './finance';
 import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvementsHtml, industryEconomyHtml, openEconomy, stationDemandHtml, townGrowthHtml } from './economy';
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
 import { AI, type AiLevel, type EconomicModel } from '../data';
 import { companyTag, openCompanies, openGameOver } from './rivals';
+import { adviceCount, logDelivery, logEvent, openAdvisor, refreshAdvice, resetFeed, type AdvisorHost } from './advisor';
+import { clearChain, openOverlayPicker, openSupplyChains, overlay, refreshOverlay, setOverlay } from './overlays';
+import { openStats } from './stats';
+import type { Advice } from '../sim/advisor';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
 const PAN_SPEED = 520; // buffer px per second for keyboard panning
@@ -33,7 +37,7 @@ interface RailButton {
   disabled?: () => boolean;
 }
 
-export class App implements ToolHost, TrainUiHost {
+export class App implements ToolHost, TrainUiHost, AdvisorHost {
   game!: Game;
   camera!: Camera;
   private readonly renderer: Renderer;
@@ -91,6 +95,8 @@ export class App implements ToolHost, TrainUiHost {
     this.following = null;
     this.econDirty = true;
     $('#news').textContent = '';
+    resetFeed();
+    clearChain();
     this.renderer.trains = this.game.trains;
     this.game.on((e) => this.onGameEvent(e));
     const world = this.game.world;
@@ -102,6 +108,8 @@ export class App implements ToolHost, TrainUiHost {
     this.renderer.setWorld(world);
     this.minimap.setWorld(world);
     this.tools = { track: new TrackTool(this), station: new StationTool(this), bulldoze: new BulldozeTool(this) };
+    setOverlay(this.game, null);
+    refreshAdvice(this.game);
     this.buildRail();
     this.pinned = null;
     this.hoverTile = null;
@@ -153,7 +161,9 @@ export class App implements ToolHost, TrainUiHost {
     }
     this.renderer.selectedTrain = this.selectedTrain ?? -1;
     this.tool?.update?.();
-    this.renderer.overlay = this.tool ? this.tool.overlay() : this.inspectOverlay;
+    const ov = this.tool ? this.tool.overlay() : this.inspectOverlay;
+    this.renderer.overlay = overlay.chain.length ? { ...ov, highlights: [...overlay.chain, ...ov.highlights] } : ov;
+    this.renderer.heat = overlay.heat;
     const time = this.game.tick + this.stepper.alpha;
     this.renderer.render(this.camera, time);
     if (this.renderer.changeCounter !== this.minimapStamp) {
@@ -205,6 +215,28 @@ export class App implements ToolHost, TrainUiHost {
     this.invalidatePanel();
   }
 
+  private openOverlays(): void {
+    openOverlayPicker(this, () => this.invalidatePanel());
+  }
+
+  /** Jump to whatever an advice or log entry is about. */
+  focusTarget(target: NonNullable<Advice['target']>): void {
+    const g = this.game;
+    if (target.train !== undefined && g.trains.byId(target.train)) {
+      this.selectTrain(target.train);
+      this.follow(target.train);
+    } else if (target.station !== undefined && g.world.stations[target.station]) {
+      const st = g.world.stations[target.station]!;
+      const W = g.world.width;
+      const mid = st.tiles[Math.floor(st.tiles.length / 2)];
+      this.setTool('inspect');
+      this.selectTrain(null);
+      this.pinned = [mid % W, Math.floor(mid / W)];
+      this.camera.centerOn((mid % W) + 0.5, Math.floor(mid / W) + 0.5);
+    } else if (target.company !== undefined) openCompanies(this, target.company);
+    this.invalidatePanel();
+  }
+
   follow(id: number): void {
     this.following = id;
     this.selectedTrain = id;
@@ -218,6 +250,7 @@ export class App implements ToolHost, TrainUiHost {
       case 'delivery': {
         const st = g.world.stations[e.station];
         if (!st) break;
+        if (g.trains.byId(e.train)?.owner === g.company.id) logDelivery(g, e.train, e.station, e.revenue, e.quotes);
         const tile = stopTile(st);
         const z = g.world.track.getIdx(tile)?.z ?? 0;
         this.renderer.addFloater((tile % W) + 0.5, Math.floor(tile / W) + 0.5, z, `+${fmtMoney(e.revenue)}`);
@@ -226,6 +259,8 @@ export class App implements ToolHost, TrainUiHost {
       case 'breakdown': {
         // Batch breakdown notices so a big fleet doesn't flood the screen.
         const t = g.trains.byId(e.train);
+        if (t?.owner !== g.company.id) break;
+        logEvent(g, 'trains', `${t.name} broke down: ${e.days} days of repairs, ${fmtMoney(e.cost)}.`, -1, { train: t.id });
         this.pendingBreakdowns.push(`${t?.name ?? 'A train'} (${e.days} d)`);
         if (this.breakdownTimer === null) {
           this.breakdownTimer = window.setTimeout(() => {
@@ -238,31 +273,39 @@ export class App implements ToolHost, TrainUiHost {
         break;
       }
       case 'wreck':
+        logEvent(g, 'trains', `${e.name} was wrecked.`, -1);
         this.toast(`${e.name} was wrecked! Engine and cargo are lost.`, 'error');
         this.renderer.addFloater(e.x, e.y, 1, 'WRECK', '#cf5a39');
         if (this.selectedTrain === e.train) this.selectTrain(null);
         break;
       case 'news':
         this.showNews(e.headline.text, e.headline.tone);
+        logEvent(g, 'news', e.headline.text, e.headline.tone);
         break;
       case 'cycle': {
         const s = g.economy.cycle.current;
+        logEvent(g, 'news', `The economy enters ${s.name.toLowerCase()} (revenue ×${s.revenue.toFixed(2)}).`, s.revenue >= 1 ? 1 : -1);
         this.toast(`The economy enters ${s.name.toLowerCase() === 'normal' ? 'normal times' : `a ${s.name.toLowerCase()}`}: revenue ×${s.revenue.toFixed(2)}.`, s.revenue >= 1 ? 'money' : 'error');
         break;
       }
       case 'growth': {
         for (const r of e.reports) {
           const city = g.world.cities[r.cityId];
+          if (r.classUp) logEvent(g, 'towns', `${city.name} has grown into a ${(MAPGEN.cities.classes[city.classIndex]?.name ?? 'town').toLowerCase()}.`, 1);
+          if (r.newIndustry) logEvent(g, 'towns', `A new ${r.newIndustry.name} opened near ${city.name}.`, 1);
           if (r.classUp) this.toast(`${city.name} has grown into a ${(MAPGEN.cities.classes[city.classIndex]?.name ?? 'town').toLowerCase()}!`, 'money');
           if (r.newIndustry) this.toast(`A new ${r.newIndustry.name} opened near ${city.name}.`);
         }
         break;
       }
       case 'finance':
+        if (e.company === g.company.id) logEvent(g, 'money', e.text, e.tone);
+        else break;
         this.toast(e.text, e.tone < 0 ? 'error' : 'info');
         this.showNews(e.text, e.tone);
         break;
       case 'rival':
+        logEvent(g, 'rivals', e.text, e.tone, { company: e.company });
         this.showNews(e.text, e.tone);
         if (e.tone !== 0) this.toast(e.text, e.tone < 0 ? 'error' : 'money');
         break;
@@ -275,6 +318,7 @@ export class App implements ToolHost, TrainUiHost {
         break;
       case 'marginCall': {
         const n = e.call.sold.reduce((a, s) => a + s.shares, 0);
+        logEvent(g, 'money', `Margin call: your broker closed ${n.toLocaleString('en-US')} shares.`, -1);
         this.toast(`Margin call! Your broker closed ${n.toLocaleString('en-US')} shares to cover your loan.`, 'error');
         break;
       }
@@ -287,11 +331,17 @@ export class App implements ToolHost, TrainUiHost {
         break;
       case 'noroute': {
         const t = g.trains.byId(e.train);
+        if (t?.owner !== g.company.id) break;
+        logEvent(g, 'trains', `${t.name} has no route to its next stop.`, -1, { train: t.id });
         this.toast(`${t?.name ?? 'A train'} has no route to its next stop.`, 'error');
         break;
       }
     }
-    if (e.type === 'month') this.econDirty = true;
+    if (e.type === 'month') {
+      this.econDirty = true;
+      refreshAdvice(g);
+      if (overlay.kind) refreshOverlay(g);
+    }
     if (e.type !== 'day' && e.type !== 'month') this.invalidatePanel();
   }
 
@@ -346,6 +396,10 @@ export class App implements ToolHost, TrainUiHost {
       { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
       { id: 'trains', icon: 'train', tip: 'Trains — fleet list and new trains', key: 'F', action: () => openFleet(this) },
       { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => openFinance(this) },
+      { id: 'advisor', icon: 'bell', tip: 'Advisor — advice, news log and delivery formulas', key: 'U', action: () => openAdvisor(this) },
+      { id: 'stats', icon: 'chart', tip: 'Statistics — revenue by cargo, trains, stations, rivals, net worth', key: 'K', action: () => openStats(this) },
+      { id: 'overlays', icon: 'heat', tip: 'Map overlays — supply, demand, growth, profit, congestion, gradient', key: 'J', action: () => this.openOverlays(), pressed: () => overlay.kind !== null },
+      { id: 'chains', icon: 'chain', tip: 'Supply chains on this map', key: 'Y', action: () => openSupplyChains(this, () => this.invalidatePanel()), pressed: () => overlay.chainCargo !== null },
       { id: 'companies', icon: 'rivals', tip: 'Railroads — rivals, stakes, takeovers and board confidence', key: 'O', action: () => openCompanies(this) },
       {
         id: 'undo',
@@ -371,7 +425,7 @@ export class App implements ToolHost, TrainUiHost {
         continue;
       }
       const b = h('button', { class: 'btn', id: `tool-${t.id}`, 'data-tip': t.tip, 'data-key': t.key, 'aria-label': t.tip });
-      b.innerHTML = icon(t.icon);
+      b.innerHTML = icon(t.icon) + (t.id === 'advisor' ? '<span class="badge" hidden></span>' : '');
       b.addEventListener('click', () => t.action());
       rail.appendChild(b);
     }
@@ -426,6 +480,15 @@ export class App implements ToolHost, TrainUiHost {
       this.lastStockKey = stockKey;
       $('#stock').innerHTML = stockChipHtml(this.game);
       $('#personal').innerHTML = personalChipHtml(this.game);
+      $('#stock').dataset.tip = stockTip(this.game);
+      $('#personal').dataset.tip = personalTip(this.game);
+      $('#cash-wrap').dataset.tip = cashTip(this.game);
+    }
+    const n = adviceCount();
+    const badge = document.querySelector<HTMLElement>('#tool-advisor .badge');
+    if (badge && badge.textContent !== String(n)) {
+      badge.textContent = String(n);
+      badge.hidden = n === 0;
     }
     if (this.econDirty) {
       this.econDirty = false;
@@ -749,6 +812,21 @@ export class App implements ToolHost, TrainUiHost {
         case 'o':
           openCompanies(this);
           break;
+        case 'j':
+          if (e.shiftKey) {
+            setOverlay(this.game, null);
+            clearChain();
+          } else this.openOverlays();
+          break;
+        case 'y':
+          openSupplyChains(this, () => this.invalidatePanel());
+          break;
+        case 'u':
+          openAdvisor(this);
+          break;
+        case 'k':
+          openStats(this);
+          break;
         case 'n':
           this.openNewGameDialog();
           break;
@@ -880,6 +958,10 @@ export class App implements ToolHost, TrainUiHost {
       ['F', 'Trains: fleet list, buy & edit trains'],
       ['M', 'Finance: books, bonds, stock, your portfolio'],
       ['O', 'Railroads: rivals, stakes, mergers, board vote'],
+      ['U', 'Advisor: advice, news log, delivery formulas'],
+      ['K', 'Statistics: revenue, trains, stations, rivals, net worth'],
+      ['J / Shift+J', 'Map overlay picker / overlay off'],
+      ['Y', 'Supply-chain explorer'],
       ['Click a train', 'Select it (panel shows cargo, route, profit)'],
       ['Ctrl+Z', 'Undo construction (full refund, within 7 days)'],
       ['I / Esc', 'Back to Inspect · Esc cancels a drag'],

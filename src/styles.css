@@ -586,7 +586,8 @@ ol.route li.cur {
 #tooltip {
   position: fixed;
   z-index: 50;
-  max-width: 16em;
+  max-width: 28em;
+  white-space: pre-line;
   padding: 0.25em 0.5em;
   background: var(--c-ink);
   border: var(--px) solid var(--c-fog);
@@ -1170,4 +1171,259 @@ ol.route li.cur {
   padding: 0.3em 0.5em;
   color: var(--c-wheat);
   margin: 0.4em 0;
+}
+
+/* --- M7: overlays, chains, advisor, stats, fleet ----------------------------------- */
+#rail {
+  max-height: calc(100vh - 6em);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+#rail .btn {
+  position: relative;
+}
+#rail .badge {
+  position: absolute;
+  right: -0.15em;
+  top: -0.15em;
+  min-width: 1.1em;
+  padding: 0 0.15em;
+  font-size: 0.75em;
+  line-height: 1.1em;
+  background: var(--c-tile);
+  color: var(--c-snow);
+  border: var(--px) solid var(--c-ink);
+}
+#legend {
+  position: fixed;
+  left: 3.6em;
+  bottom: 2.2em;
+  z-index: 10;
+  max-width: 17em;
+  padding: 0.3em 0.5em;
+  background: var(--panel-bg);
+  border: var(--px) solid var(--panel-edge);
+}
+#legend ul {
+  list-style: none;
+  margin: 0.2em 0;
+  padding: 0;
+}
+#legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+#legend small {
+  color: var(--muted);
+  font-size: 1em;
+}
+#legend .lg-keys {
+  color: var(--muted);
+  margin-top: 0.2em;
+}
+.dither {
+  display: inline-block;
+  width: 1.2em;
+  height: 0.8em;
+  border: var(--px) solid var(--c-slate);
+  background-color: var(--c-ink);
+  background-size: 4px 4px;
+}
+.dither.d1 {
+  background-image: conic-gradient(var(--c) 0 25%, var(--c-ink) 0 100%);
+}
+.dither.d2 {
+  background-image: conic-gradient(var(--c) 0 25%, var(--c-ink) 0 50%, var(--c) 0 75%, var(--c-ink) 0);
+}
+.dither.d3 {
+  background-image: conic-gradient(var(--c) 0 75%, var(--c-ink) 0);
+}
+.overlay-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3em;
+  margin-bottom: 0.6em;
+}
+.overlay-grid .btn {
+  justify-content: center;
+}
+.modal.chains-modal {
+  max-width: 96vw;
+  width: 78em;
+}
+.chains {
+  max-height: 62vh;
+  overflow: auto;
+}
+.chains svg {
+  display: block;
+  font-family: 'BaronPixel', ui-monospace, monospace;
+  font-size: var(--fs);
+}
+.chains .edges polyline {
+  fill: none;
+  stroke: var(--c-slate);
+  stroke-width: 1;
+}
+.chains .edges polyline.hot {
+  stroke: var(--c-gold);
+  stroke-width: 2;
+}
+.chains .node rect {
+  fill: var(--c-night);
+  stroke: var(--c-steel);
+  stroke-width: 1;
+}
+.chains .node.cargo rect:first-child {
+  fill: var(--c-ink);
+  stroke: var(--c-fog);
+}
+.chains .node.towns rect {
+  stroke: var(--c-wheat);
+}
+.chains .node text {
+  fill: var(--c-bone);
+}
+.chains .node[data-cargo] {
+  cursor: pointer;
+}
+.chains .node[data-cargo]:hover rect:first-child,
+.chains .node[data-cargo]:focus rect:first-child,
+.chains .node.sel rect:first-child {
+  stroke: var(--c-gold);
+  stroke-width: 2;
+}
+.modal.advisor {
+  max-width: min(60em, 96vw);
+  width: 60em;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 1em;
+  margin-bottom: 0.4em;
+}
+.feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 55vh;
+  overflow: auto;
+}
+.feed li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  padding: 0.25em 0;
+  border-bottom: var(--px) solid var(--c-night);
+}
+.feed li .grow {
+  flex: 1;
+}
+.feed li small {
+  color: var(--muted);
+  font-size: 1em;
+  white-space: nowrap;
+}
+.feed .tag {
+  white-space: nowrap;
+}
+.feed li.sev2 .tag {
+  background: var(--c-tile);
+  color: var(--c-snow);
+}
+.feed li.sev1 .tag {
+  background: var(--c-ember);
+  color: var(--c-ink);
+}
+.feed li.dismissed {
+  opacity: 0.5;
+}
+.feed li.good .grow {
+  color: var(--c-meadow);
+}
+.feed li.bad .grow {
+  color: var(--c-tile);
+}
+.feed .formula {
+  color: var(--muted);
+}
+.feed .formula span {
+  color: var(--text);
+}
+.feed .money {
+  color: var(--c-gold);
+}
+.fleet-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em;
+  margin-bottom: 0.4em;
+}
+.fleet-tools .grow {
+  flex: 1;
+}
+.modal.fleet-modal {
+  max-width: min(66em, 96vw);
+  width: 66em;
+}
+.fleet-table tr.sel td {
+  background: var(--c-night);
+}
+.fleet-table input[type='checkbox'] {
+  margin: 0;
+}
+td.right {
+  text-align: right;
+  white-space: nowrap;
+}
+.tpl-row {
+  margin-bottom: 0.4em;
+}
+.stats-chart svg {
+  height: 10em;
+}
+.stats-chart .chart-axis {
+  height: 10em;
+}
+.stats-chart .x-axis,
+.stats-chart .legend {
+  grid-column: 1 / -1;
+}
+.stats-chart .lines polyline {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.stats-chart .zero,
+svg.spark .zero {
+  stroke: var(--c-steel);
+  stroke-dasharray: 2 2;
+}
+.x-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+}
+.legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 1em;
+  margin: 0.3em 0 0;
+  padding: 0;
+}
+.legend svg.lg {
+  width: 1.4em;
+  height: 0.4em;
+  margin-right: 0.3em;
+  vertical-align: middle;
+}
+svg.spark polyline {
+  stroke: var(--c-gold);
+  stroke-width: 1;
+}
+.stats-table {
+  max-height: 55vh;
 }

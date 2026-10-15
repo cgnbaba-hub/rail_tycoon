@@ -37,9 +37,13 @@ npx vite-node scripts/rivals.ts -- <seed> <years> <level>    # watch AI rivals f
 | `V` | Single / double track (track tool) |
 | `B` | Build station — hover shows the catchment and what it covers; `B` again cycles depot/station/terminal, `R` rotates |
 | `X` | Bulldoze track, bridges/tunnels (whole span) or stations |
-| `F` | Trains: sortable fleet list, buy a new train (engine, route, cars, live profit estimate) |
+| `F` | Trains: sortable table (profit/yr, age, reliability, load, breakdowns) with bulk upgrade/sell/re-route, route templates, new train dialog |
 | `M` | Finance: books, bonds, stock chart & share actions, your portfolio (trade any railroad) |
 | `O` | Railroads: rivals, chairmen, stakes, takeover votes, board confidence |
+| `U` | Advisor: what needs attention, news log, every delivery with its revenue formula |
+| `K` | Statistics: revenue by cargo, trains, stations, rivals' market value, net worth |
+| `J` / `Shift+J` | Map overlays (supply, demand, growth, catchment, route profit, traffic, congestion, gradient) / off |
+| `Y` | Supply-chain explorer — click a cargo to see where it is made and used |
 | Click a top-bar chip | Economy report · stock window · your portfolio |
 | Click a train | Select it: status, cargo, route, profit; edit, follow, duplicate, upgrade engine, sell |
 | `Ctrl+Z` | Undo the last construction (full refund within 7 in-game days) |
@@ -90,6 +94,14 @@ cheaper with a good credit rating; running out of cash forces expensive emergenc
 You can buy more shares (on margin), sell, or sell short — watch the margin gauge. Your
 personal net worth is in the top bar.
 
+**Information.** The advisor (`U`, with a badge when something needs you) lists waiting
+cargo, stuck or empty trains, saturated stations, money and takeover risks; *Show* jumps to
+the place. Map overlays (`J`) show where cargo is produced and wanted, which track pays and
+where trains queue; the supply-chain explorer (`Y`) shows what feeds what on this map.
+Statistics (`K`) graph your revenue by cargo, every train and station, and how you compare
+with the rival barons. Hover numbers in the top bar and station panels for their formulas.
+Save a good train as a template to buy copies (also running the other way).
+
 **Rivals.** Up to three rival barons (two by default) build their own railways — their
 stations have coloured roofs and labels — and play the stock market. A baron who buys 30 %
 of your company can call a takeover vote; your own stake, a rising share price and profits
@@ -107,7 +119,8 @@ paused, and construction can be undone for a full refund for a week of game time
 ```
 src/sim/     deterministic simulation (no DOM): rng, noise, world, mapgen, time, track,
              construction, trains, economy, cycle, growth, company, finance, chairman,
-             ai (rival barons), rivals (mergers, bankruptcy, board vote), game
+             ai (rival barons), rivals (mergers, bankruptcy, board vote), stats, advisor,
+             overlays, fleet, game
 src/render/  palette, iso projection, camera, software rasterizer, chunk renderer
 src/ui/      DOM HUD, inspector, minimap, dialogs, runtime-generated pixel font
 src/data/    JSON data: cargo, industries, buildings, mapgen, names, time
