@@ -53,6 +53,7 @@ import {
   type RouteStop,
   type Train,
   type TrainEvent,
+  type TrainHost,
 } from './train';
 import type { MapParams, World } from './world';
 
@@ -204,9 +205,14 @@ export class Game {
     this.growthRng = this.rng.fork(12);
     this.marketRng = this.rng.fork(13);
     for (const inv of this.investors) inv.yearStartWorth = this.netWorth(inv);
+    this.trains = new TrainSystem(this.trainHost());
+  }
+
+  /** The train system's view of the game (rebuilt after loading a save). */
+  trainHost(): TrainHost {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const game = this;
-    this.trains = new TrainSystem({
+    return {
       world: this.world,
       economy: this.economy,
       companyOf: (id: number) => this.companyById(id) ?? this.company,
@@ -219,7 +225,15 @@ export class Game {
         return game.year;
       },
       emit: (e) => this.emit(e),
-    });
+    };
+  }
+
+  /** Re-link a game rebuilt from a save (see save.ts). */
+  restored(): void {
+    this.listeners = [];
+    this.trains.attach(this.trainHost());
+    // Undo entries hold live world transactions; they are not saved.
+    (this as { undoStack: UndoEntry[] }).undoStack = [];
   }
 
   /** The player's company. */
@@ -319,10 +333,9 @@ export class Game {
     const blocked = new Set(this.undoStack.flatMap((e) => e.tx.touchedTiles));
     const reports = monthlyCityGrowth(this.world, this.economy, this.growthRng, this.year, blocked);
     this.economy.resetMonth();
-    if (reports.length) {
-      this.economy.invalidate();
-      this.emit({ type: 'growth', reports });
-    }
+    // Populations change a little every month: recompute station supply from them.
+    this.economy.invalidate();
+    if (reports.length) this.emit({ type: 'growth', reports });
     const cycle = this.economy.cycle;
     if (cycle.state !== stateBefore) this.emit({ type: 'cycle', state: cycle.state, date });
     // news is capped (shifted), so compare against the newest entries

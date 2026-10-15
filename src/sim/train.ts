@@ -410,7 +410,7 @@ export class TrainSystem {
   readonly profitSum: Float32Array;
   readonly waits: Float32Array;
 
-  constructor(private readonly host: TrainHost) {
+  constructor(private host: TrainHost) {
     const n = host.world.width * host.world.height;
     this.traffic = new Float32Array(n);
     this.profitSum = new Float32Array(n);
@@ -419,6 +419,11 @@ export class TrainSystem {
 
   get world(): World {
     return this.host.world;
+  }
+
+  /** Re-attach to the game after loading a save. */
+  attach(host: TrainHost): void {
+    this.host = host;
   }
 
   byId(id: number): Train | undefined {

@@ -566,6 +566,10 @@ function boardHtml(r: YearEndReport): string {
   return `${row('Shareholder vote on you', verdict)}${b.support < 0.5 && b.strikes < 2 ? '<p class="warnbox">Lose next year\'s vote too and you are out. Raise the share price, make a profit, and keep a big stake yourself.</p>' : b.warn && b.support >= 0.5 ? '<p class="hint">A narrow win — the shareholders are getting restless.</p>' : ''}`;
 }
 
+export function setYearEnd(on: boolean): void {
+  localStorageSet('ironBaron.yearEnd', on ? 'on' : 'off');
+}
+
 export function yearEndEnabled(): boolean {
   return localStorageGet('ironBaron.yearEnd') !== 'off';
 }

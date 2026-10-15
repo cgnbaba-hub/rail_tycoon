@@ -107,6 +107,8 @@ export class Renderer {
   /** Palette colour name per company id (index 0 = the player). */
   ownerColors: string[] = [];
   showLabels = true;
+  /** Skip purely decorative motion (smoke, puffs, floating money). */
+  reducedMotion = false;
   hover: Highlight | null = null;
   selection: Highlight | null = null;
   overlay: Overlay = { highlights: [] };
@@ -174,13 +176,15 @@ export class Renderer {
     if (this.hover) this.drawHighlight(camera, this.hover);
     if (this.overlay.plan?.ok) this.drawPlan(camera, this.overlay.plan, !!this.overlay.planDim);
     this.drawTrains(camera, time);
-    this.drawSmoke(camera, time);
-    this.drawPuffs(camera, time);
+    if (!this.reducedMotion) {
+      this.drawSmoke(camera, time);
+      this.drawPuffs(camera, time);
+    }
     if (this.showLabels) {
       this.drawCityLabels(camera);
       this.drawStationLabels(camera);
     }
-    this.drawFloaters(camera);
+    if (!this.reducedMotion) this.drawFloaters(camera);
   }
 
   /** Show a rising money/label text in the world (e.g. delivery revenue). */

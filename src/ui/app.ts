@@ -22,6 +22,9 @@ import { companyTag, openCompanies, openGameOver } from './rivals';
 import { adviceCount, logDelivery, logEvent, openAdvisor, refreshAdvice, resetFeed, type AdvisorHost } from './advisor';
 import { clearChain, openOverlayPicker, openSupplyChains, overlay, refreshOverlay, setOverlay } from './overlays';
 import { openStats } from './stats';
+import { prefs, onPrefs, uiFontTarget } from './prefs';
+import { openSaves, writeSave } from './saves';
+import { openSettings } from './settings';
 import type { Advice } from '../sim/advisor';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
@@ -69,6 +72,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
   private pendingBreakdowns: string[] = [];
   private breakdownTimer: number | null = null;
   private econDirty = true;
+  private monthsSinceAutosave = 0;
   private lastStockKey = '';
 
   constructor() {
@@ -80,6 +84,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.bindKeys();
     this.bindTooltips();
     window.addEventListener('resize', () => this.resize());
+    onPrefs(() => this.resize());
     this.resize();
   }
 
@@ -88,9 +93,17 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
   // -------------------------------------------------------------------------------------
 
   newGame(params: MapParams, settings?: Partial<GameSettings>): void {
+    this.startGame(new Game(params, undefined, { rivals: 2, ...settings }));
+  }
+
+  /** Show a game (new or loaded). */
+  startGame(game: Game): void {
+    const params = game.params;
     this.tool?.deactivate?.();
     this.tool = null;
-    this.game = new Game(params, undefined, { rivals: 2, ...settings });
+    this.closeModal();
+    this.game = game;
+    this.monthsSinceAutosave = 0;
     this.selectedTrain = null;
     this.following = null;
     this.econDirty = true;
@@ -116,7 +129,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.stepper.reset();
     this.setSpeed(1);
     $('#seed').textContent = `Seed ${params.seed}`;
-    $('#company').textContent = this.game.company.name;
+    $('#company').textContent = this.game.company.name + (this.game.over ? ' — game over' : '');
     const url = new URL(window.location.href);
     url.searchParams.set('seed', String(params.seed));
     url.searchParams.set('size', String(params.size));
@@ -185,7 +198,8 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.renderer.resize(bw, bh);
     this.canvas.style.width = `${(bw * this.pixelScale) / dpr}px`;
     this.canvas.style.height = `${(bh * this.pixelScale) / dpr}px`;
-    document.documentElement.style.setProperty('--fs', `${crispFontSize(dpr, window.innerWidth < 760 ? 12 : 17)}px`);
+    document.documentElement.style.setProperty('--fs', `${crispFontSize(dpr, uiFontTarget(window.innerWidth < 760))}px`);
+    this.renderer.reducedMotion = prefs.reducedMotion;
   }
 
   // -------------------------------------------------------------------------------------
@@ -339,6 +353,11 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     }
     if (e.type === 'month') {
       this.econDirty = true;
+      this.monthsSinceAutosave++;
+      if (prefs.autosaveMonths > 0 && this.monthsSinceAutosave >= prefs.autosaveMonths) {
+        this.monthsSinceAutosave = 0;
+        writeSave('Autosave', g).catch(() => this.toast('Autosave failed (storage full or blocked).', 'error'));
+      }
       refreshAdvice(g);
       if (overlay.kind) refreshOverlay(g);
     }
@@ -379,8 +398,15 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     $('#econ').addEventListener('click', () => openEconomy(this));
     $('#stock').addEventListener('click', () => openFinance(this, 'stock'));
     $('#personal').addEventListener('click', () => openFinance(this, 'portfolio'));
-    $('#btn-new').innerHTML = `${icon('newmap')}<span>New map</span>`;
+    $('#btn-new').innerHTML = icon('newmap');
+    $('#btn-new').setAttribute('aria-label', 'New map');
     $('#btn-new').addEventListener('click', () => this.openNewGameDialog());
+    $('#btn-save').innerHTML = icon('disk');
+    $('#btn-save').setAttribute('aria-label', 'Save and load');
+    $('#btn-save').addEventListener('click', () => void openSaves(this));
+    $('#btn-settings').innerHTML = icon('gear');
+    $('#btn-settings').setAttribute('aria-label', 'Settings');
+    $('#btn-settings').addEventListener('click', () => openSettings(this));
     $('#btn-help').innerHTML = icon('help');
     $('#btn-help').setAttribute('aria-label', 'Help');
     $('#btn-help').addEventListener('click', () => this.openHelp());
@@ -740,6 +766,13 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       }
       if (target.closest('input, select, textarea')) return;
       const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === 's') {
+        e.preventDefault();
+        writeSave('Quicksave', this.game)
+          .then(() => this.toast('Quick-saved', 'info'))
+          .catch(() => this.toast('Could not save (storage full or blocked).', 'error'));
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && k === 'z') {
         this.undo();
         e.preventDefault();
