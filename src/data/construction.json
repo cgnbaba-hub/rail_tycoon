@@ -1,0 +1,30 @@
+{
+  "_doc": "Construction costs (1850 dollars, no inflation yet) and physical scale. See BALANCING.md.",
+  "feetPerLevel": 60,
+  "feetPerTile": 1320,
+  "track": {
+    "single": 6000,
+    "doubleExtra": 4200,
+    "terrain": { "water": 99, "sand": 1.15, "grass": 1.0, "forest": 1.3, "rough": 1.7, "snow": 2.1 },
+    "clearForest": 1500,
+    "perLevelClimb": 5000,
+    "levelCrossing": 1500,
+    "bulldozePerTile": 500,
+    "demolish": { "cottage": 8000, "house": 10000, "rowhouses": 18000, "shop": 22000, "church": 40000, "office": 50000, "tower": 90000 }
+  },
+  "planner": {
+    "_doc": "A* planning weights (not charged): grade penalty in $ per (grade %)^2 per tile, turn penalty per 45 deg, cost of reusing existing track per tile.",
+    "gradeAvoidance": 900,
+    "turnPenalty": 700,
+    "reusePerTile": 400,
+    "maxExpansions": 250000,
+    "heuristicWeight": 1.1
+  },
+  "bridges": [
+    { "id": "wood", "name": "Wooden trestle", "perTile": 14000, "perLevel": 1500, "maxSpan": 3, "speedLimit": 35, "weightLimit": 400, "era": [1800, 2100] },
+    { "id": "stone", "name": "Stone arch", "perTile": 30000, "perLevel": 3000, "maxSpan": 5, "speedLimit": 80, "weightLimit": 3000, "era": [1800, 2100] },
+    { "id": "steel", "name": "Steel truss", "perTile": 46000, "perLevel": 2500, "maxSpan": 10, "speedLimit": 120, "weightLimit": 9000, "era": [1870, 2100] }
+  ],
+  "tunnel": { "perTile": 60000, "maxLength": 8, "minCover": 0.75, "maxGradeLevelsPerTile": 0.5 },
+  "undo": { "maxActions": 30, "windowDays": 7 }
+}

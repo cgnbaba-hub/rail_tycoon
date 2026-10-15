@@ -1,0 +1,9 @@
+{
+  "_doc": "Syllables for procedurally generated (fictional) town names.",
+  "prefixes": ["Ash", "Iron", "Copper", "Elm", "Oak", "Maple", "Cedar", "Pine", "Stone", "Red", "Black", "White", "Green", "Silver", "Gold", "North", "South", "East", "West", "Fair", "Clear", "High", "Low", "Long", "Bright", "Raven", "Hawk", "Fox", "Wolf", "Bear", "Deer", "Mill", "Kings", "Queens", "Bridge", "Spring", "Summer", "Winter", "Marsh", "Glen", "Brook", "Lake", "Rock", "Sand", "Willow", "Birch", "Hazel", "Thorn", "Wheat", "Barley", "Coal", "Salt", "Amber", "Cobalt", "Granite", "Hollow", "Prairie", "Timber", "Briar", "Lin", "Har", "Wel", "Dun", "Mer", "Bel", "Cal", "Tal", "Gar", "Bram", "Hart"],
+  "suffixes": ["ford", "ton", "ville", "burg", "field", "wood", "dale", "port", "haven", "ridge", "view", "bury", "stead", "wick", "worth", "mouth", "crest", "brook", "creek", "falls", "springs", "bend", "hollow", "gate", "mill", "moor", "land", "ham", "by", "cross", "point", "vale", "rock", "well", "bridge", "town", "dell", "shire"],
+  "coastalPrefixes": ["Port ", "Bay ", "Cape "],
+  "riverSuffixes": [" Falls", " Crossing", " Landing"],
+  "bigCitySuffixes": [" City", ""],
+  "hillSuffixes": [" Heights", " Summit"]
+}

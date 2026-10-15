@@ -1,0 +1,20 @@
+{
+  "name": "iron-baron",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Iron Baron - an 8-bit railroad business simulation",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "^3.2.4"
+  }
+}

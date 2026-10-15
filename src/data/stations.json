@@ -1,0 +1,9 @@
+{
+  "_doc": "Station sizes. length = platform tiles along the track; radius = catchment (Chebyshev tiles around the footprint).",
+  "stations": [
+    { "id": "depot", "name": "Depot", "length": 1, "radius": 2, "cost": 25000, "look": { "w": 0.28, "l": 0.5, "h": 7, "wall": "soil", "roof": "loam" } },
+    { "id": "station", "name": "Station", "length": 2, "radius": 3, "cost": 60000, "look": { "w": 0.32, "l": 0.85, "h": 10, "wall": "brick", "roof": "slate" } },
+    { "id": "terminal", "name": "Terminal", "length": 3, "radius": 4, "cost": 120000, "look": { "w": 0.34, "l": 0.9, "h": 13, "wall": "stone", "roof": "tile", "tower": 26 } }
+  ],
+  "nameSuffixes": ["Junction", "Central", "North", "South", "East", "West", "Crossing", "Halt", "Yard", "Union"]
+}

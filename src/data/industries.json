@@ -1,0 +1,279 @@
+{
+  "_doc": "Industry catalogue. rate = loads/month produced (raw sites) or max output/month (processors; 1 input load -> 1 output load). kind: raw (produces from nothing) or processor (converts inputs). placement rules drive mapgen; look = pixel-art primitives in footprint tile units (x,y,w,d) with heights in px at 32px tiles. Production rates are used from M4.",
+  "industries": [
+    {
+      "id": "coal_mine", "name": "Coal Mine", "kind": "raw", "produces": ["coal"], "consumes": [], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.6, "rate": 8,
+      "placement": { "terrain": ["grass", "rough", "forest"], "minHeight": 0.3, "maxHeight": 0.85, "spacing": 8 },
+      "look": { "ground": ["loam", "soil", "soil"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 0.8, "d": 0.6, "h": 8, "wall": "brick", "roof": "shale", "roofType": "gableX", "roofH": 4 },
+        { "t": "box", "x": 1.1, "y": 0.25, "w": 0.25, "d": 0.25, "h": 26, "wall": "steel", "roof": "slate" },
+        { "t": "box", "x": 1.05, "y": 0.2, "w": 0.35, "d": 0.35, "h": 4, "z": 26, "wall": "slate", "roof": "ink", "roofType": "pyramid", "roofH": 3 },
+        { "t": "pile", "x": 0.2, "y": 1.1, "w": 0.8, "d": 0.7, "h": 7, "c": "ink" },
+        { "t": "pile", "x": 1.1, "y": 1.2, "w": 0.6, "d": 0.6, "h": 5, "c": "night" }
+      ] }
+    },
+    {
+      "id": "iron_mine", "name": "Iron Mine", "kind": "raw", "produces": ["iron"], "consumes": [], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.3, "rate": 7,
+      "placement": { "terrain": ["grass", "rough"], "minHeight": 0.35, "maxHeight": 0.9, "spacing": 8 },
+      "look": { "ground": ["loam", "rust", "soil"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.2, "w": 0.7, "d": 0.6, "h": 8, "wall": "stone", "roof": "rust", "roofType": "gableY", "roofH": 4 },
+        { "t": "box", "x": 1.15, "y": 0.3, "w": 0.22, "d": 0.22, "h": 22, "wall": "shale", "roof": "slate" },
+        { "t": "pile", "x": 0.2, "y": 1.1, "w": 0.7, "d": 0.7, "h": 7, "c": "rust" },
+        { "t": "pile", "x": 1.1, "y": 1.1, "w": 0.7, "d": 0.7, "h": 6, "c": "oxblood" }
+      ] }
+    },
+    {
+      "id": "logging_camp", "name": "Logging Camp", "kind": "raw", "produces": ["logs"], "consumes": [], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.8, "rate": 7,
+      "placement": { "terrain": ["forest"], "minHeight": 0.0, "maxHeight": 0.8, "spacing": 8 },
+      "look": { "ground": ["loam", "soil", "wheat"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.2, "w": 0.7, "d": 0.5, "h": 7, "wall": "soil", "roof": "loam", "roofType": "gableX", "roofH": 4 },
+        { "t": "box", "x": 1.0, "y": 1.1, "w": 0.8, "d": 0.2, "h": 3, "wall": "rust", "roof": "wheat" },
+        { "t": "box", "x": 1.0, "y": 1.4, "w": 0.8, "d": 0.2, "h": 3, "wall": "rust", "roof": "wheat" },
+        { "t": "box", "x": 1.05, "y": 1.25, "w": 0.7, "d": 0.2, "h": 3, "z": 3, "wall": "rust", "roof": "wheat" },
+        { "t": "tree", "x": 1.5, "y": 0.4 },
+        { "t": "tree", "x": 0.4, "y": 1.6 }
+      ] }
+    },
+    {
+      "id": "grain_farm", "name": "Grain Farm", "kind": "raw", "produces": ["grain"], "consumes": ["fertilizer"], "era": [1800, 2100],
+      "size": [2, 2], "density": 2.6, "rate": 6,
+      "placement": { "terrain": ["grass"], "minHeight": 0.0, "maxHeight": 0.5, "spacing": 7 },
+      "look": { "ground": ["dune", "wheat", "gold"], "field": ["wheat", "dune"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.15, "w": 0.6, "d": 0.45, "h": 9, "wall": "brick", "roof": "oxblood", "roofType": "gableX", "roofH": 5 },
+        { "t": "box", "x": 0.85, "y": 0.2, "w": 0.22, "d": 0.22, "h": 16, "wall": "fog", "roof": "steel", "roofType": "pyramid", "roofH": 3 }
+      ] }
+    },
+    {
+      "id": "cattle_ranch", "name": "Cattle Ranch", "kind": "raw", "produces": ["livestock"], "consumes": ["grain"], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.8, "rate": 5,
+      "placement": { "terrain": ["grass"], "minHeight": 0.0, "maxHeight": 0.6, "spacing": 7 },
+      "look": { "ground": ["moss", "grass", "meadow"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.2, "w": 0.7, "d": 0.5, "h": 8, "wall": "soil", "roof": "rust", "roofType": "gableY", "roofH": 4 },
+        { "t": "fence", "x": 0.1, "y": 0.9, "w": 1.8, "d": 1.0, "c": "loam" },
+        { "t": "dots", "x": 0.3, "y": 1.0, "w": 1.4, "d": 0.8, "c": "loam", "c2": "bone", "n": 6 }
+      ] }
+    },
+    {
+      "id": "dairy_farm", "name": "Dairy Farm", "kind": "raw", "produces": ["milk"], "consumes": [], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.4, "rate": 5,
+      "placement": { "terrain": ["grass"], "minHeight": 0.0, "maxHeight": 0.6, "spacing": 7 },
+      "look": { "ground": ["grass", "meadow", "meadow"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.2, "w": 0.8, "d": 0.5, "h": 9, "wall": "bone", "roof": "tile", "roofType": "gableX", "roofH": 5 },
+        { "t": "box", "x": 1.2, "y": 0.25, "w": 0.25, "d": 0.25, "h": 18, "wall": "sky", "roof": "fog", "roofType": "pyramid", "roofH": 3 },
+        { "t": "fence", "x": 0.1, "y": 1.0, "w": 1.8, "d": 0.9, "c": "bone" },
+        { "t": "dots", "x": 0.3, "y": 1.1, "w": 1.4, "d": 0.7, "c": "bone", "c2": "ink", "n": 5 }
+      ] }
+    },
+    {
+      "id": "cotton_plantation", "name": "Cotton Plantation", "kind": "raw", "produces": ["cotton"], "consumes": ["fertilizer"], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.2, "rate": 5,
+      "placement": { "terrain": ["grass", "sand"], "minHeight": 0.0, "maxHeight": 0.35, "spacing": 8 },
+      "look": { "ground": ["moss", "meadow", "bone"], "field": ["bone", "moss"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.15, "w": 0.6, "d": 0.5, "h": 10, "wall": "cream", "roof": "slate", "roofType": "gableY", "roofH": 4 }
+      ] }
+    },
+    {
+      "id": "sheep_farm", "name": "Sheep Farm", "kind": "raw", "produces": ["wool"], "consumes": [], "era": [1800, 2100],
+      "size": [2, 2], "density": 1.2, "rate": 4,
+      "placement": { "terrain": ["grass", "rough"], "minHeight": 0.25, "maxHeight": 0.8, "spacing": 8 },
+      "look": { "ground": ["grass", "meadow", "meadow"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.25, "w": 0.6, "d": 0.45, "h": 7, "wall": "stone", "roof": "shale", "roofType": "gableX", "roofH": 4 },
+        { "t": "fence", "x": 0.1, "y": 0.9, "w": 1.8, "d": 1.0, "c": "stone" },
+        { "t": "dots", "x": 0.3, "y": 1.0, "w": 1.4, "d": 0.8, "c": "snow", "c2": "bone", "n": 8 }
+      ] }
+    },
+    {
+      "id": "quarry", "name": "Limestone Quarry", "kind": "raw", "produces": ["rock"], "consumes": [], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.9, "rate": 6,
+      "placement": { "terrain": ["grass", "rough"], "minHeight": 0.2, "maxHeight": 0.9, "spacing": 10 },
+      "look": { "ground": ["shale", "stone", "fog"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.2, "w": 0.5, "d": 0.4, "h": 7, "wall": "stone", "roof": "slate", "roofType": "gableX", "roofH": 3 },
+        { "t": "pile", "x": 1.0, "y": 0.2, "w": 0.8, "d": 0.7, "h": 8, "c": "fog" },
+        { "t": "pile", "x": 0.3, "y": 1.1, "w": 0.6, "d": 0.6, "h": 6, "c": "bone" }
+      ] }
+    },
+    {
+      "id": "oil_well", "name": "Oil Well", "kind": "raw", "produces": ["oil"], "consumes": [], "era": [1860, 2100],
+      "size": [1, 1], "density": 1.4, "rate": 7,
+      "placement": { "terrain": ["grass", "sand", "rough"], "minHeight": 0.0, "maxHeight": 0.6, "spacing": 5 },
+      "look": { "ground": ["loam", "soil", "dune"], "parts": [
+        { "t": "derrick", "x": 0.25, "y": 0.25, "w": 0.4, "d": 0.4, "h": 24, "c": "ink" },
+        { "t": "box", "x": 0.65, "y": 0.6, "w": 0.25, "d": 0.25, "h": 6, "wall": "night", "roof": "slate" }
+      ] }
+    },
+    {
+      "id": "rubber_plantation", "name": "Rubber Plantation", "kind": "raw", "produces": ["rubber"], "consumes": [], "era": [1880, 2100],
+      "size": [2, 2], "density": 0.8, "rate": 4,
+      "placement": { "terrain": ["forest", "grass"], "minHeight": 0.0, "maxHeight": 0.35, "spacing": 10 },
+      "look": { "ground": ["fir", "pine", "moss"], "field": ["pine", "moss"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.15, "w": 0.55, "d": 0.45, "h": 7, "wall": "wheat", "roof": "loam", "roofType": "gableX", "roofH": 4 },
+        { "t": "tree", "x": 1.3, "y": 0.4 }, { "t": "tree", "x": 1.6, "y": 1.0 }, { "t": "tree", "x": 0.6, "y": 1.4 }, { "t": "tree", "x": 1.2, "y": 1.6 }
+      ] }
+    },
+    {
+      "id": "bauxite_mine", "name": "Bauxite Mine", "kind": "raw", "produces": ["bauxite"], "consumes": [], "era": [1890, 2100],
+      "size": [2, 2], "density": 0.7, "rate": 5,
+      "placement": { "terrain": ["grass", "rough", "sand"], "minHeight": 0.1, "maxHeight": 0.8, "spacing": 10 },
+      "look": { "ground": ["rust", "ember", "dune"], "parts": [
+        { "t": "box", "x": 0.2, "y": 0.2, "w": 0.7, "d": 0.5, "h": 8, "wall": "steel", "roof": "slate", "roofType": "flat" },
+        { "t": "pile", "x": 1.0, "y": 0.9, "w": 0.8, "d": 0.8, "h": 8, "c": "ember" },
+        { "t": "pile", "x": 0.2, "y": 1.1, "w": 0.6, "d": 0.6, "h": 5, "c": "rust" }
+      ] }
+    },
+    {
+      "id": "steel_mill", "name": "Steel Mill", "kind": "processor", "produces": ["steel"], "consumes": ["coal", "iron"], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.55, "rate": 12,
+      "placement": { "terrain": ["grass", "sand", "rough"], "maxHeight": 0.6, "nearCity": [3, 14], "spacing": 14 },
+      "look": { "ground": ["shale", "slate", "stone"], "parts": [
+        { "t": "box", "x": 0.1, "y": 0.5, "w": 1.6, "d": 1.2, "h": 14, "wall": "oxblood", "roof": "slate", "roofType": "gableX", "roofH": 6, "windows": "ember" },
+        { "t": "box", "x": 0.25, "y": 0.1, "w": 0.2, "d": 0.2, "h": 34, "wall": "brick", "roof": "ink", "smoke": true },
+        { "t": "box", "x": 0.75, "y": 0.1, "w": 0.2, "d": 0.2, "h": 30, "wall": "brick", "roof": "ink", "smoke": true },
+        { "t": "box", "x": 1.25, "y": 0.1, "w": 0.2, "d": 0.2, "h": 26, "wall": "brick", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "lumber_mill", "name": "Lumber Mill", "kind": "processor", "produces": ["lumber"], "consumes": ["logs"], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.7, "rate": 12,
+      "placement": { "terrain": ["grass", "forest", "sand"], "maxHeight": 0.65, "nearCity": [2, 14], "spacing": 12 },
+      "look": { "ground": ["soil", "wheat", "dune"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 1.1, "d": 0.7, "h": 11, "wall": "soil", "roof": "rust", "roofType": "gableX", "roofH": 5, "windows": "loam" },
+        { "t": "box", "x": 1.4, "y": 0.3, "w": 0.18, "d": 0.18, "h": 22, "wall": "shale", "roof": "ink", "smoke": true },
+        { "t": "box", "x": 0.2, "y": 1.2, "w": 1.0, "d": 0.25, "h": 4, "wall": "wheat", "roof": "dune" },
+        { "t": "box", "x": 0.2, "y": 1.55, "w": 1.0, "d": 0.25, "h": 4, "wall": "wheat", "roof": "dune" }
+      ] }
+    },
+    {
+      "id": "paper_mill", "name": "Paper Mill", "kind": "processor", "produces": ["paper"], "consumes": ["logs"], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.45, "rate": 12,
+      "placement": { "terrain": ["grass", "forest"], "maxHeight": 0.6, "nearCity": [2, 14], "spacing": 14 },
+      "look": { "ground": ["stone", "fog", "bone"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.4, "w": 1.5, "d": 1.0, "h": 12, "wall": "bone", "roof": "steel", "roofType": "flat", "windows": "slate" },
+        { "t": "box", "x": 0.4, "y": 0.1, "w": 0.2, "d": 0.2, "h": 28, "wall": "brick", "roof": "ink", "smoke": true },
+        { "t": "box", "x": 1.3, "y": 1.5, "w": 0.35, "d": 0.35, "h": 12, "wall": "fog", "roof": "steel", "roofType": "pyramid", "roofH": 3 }
+      ] }
+    },
+    {
+      "id": "food_plant", "name": "Food Processing Plant", "kind": "processor", "produces": ["food"], "consumes": ["grain", "livestock", "milk"], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.6, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.55, "nearCity": [1, 10], "spacing": 12 },
+      "look": { "ground": ["stone", "fog", "bone"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 1.3, "d": 0.9, "h": 12, "wall": "cream", "roof": "tile", "roofType": "gableY", "roofH": 6, "windows": "slate" },
+        { "t": "box", "x": 1.45, "y": 1.3, "w": 0.35, "d": 0.35, "h": 14, "wall": "fog", "roof": "steel", "roofType": "pyramid", "roofH": 4 },
+        { "t": "box", "x": 1.0, "y": 1.35, "w": 0.3, "d": 0.3, "h": 12, "wall": "fog", "roof": "steel", "roofType": "pyramid", "roofH": 4 }
+      ] }
+    },
+    {
+      "id": "textile_mill", "name": "Textile Mill", "kind": "processor", "produces": ["textiles"], "consumes": ["cotton", "wool"], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.5, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.55, "nearCity": [1, 10], "spacing": 14 },
+      "look": { "ground": ["shale", "stone", "stone"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.3, "w": 1.6, "d": 0.8, "h": 16, "wall": "brick", "roof": "slate", "roofType": "gableX", "roofH": 5, "windows": "gold" },
+        { "t": "box", "x": 1.5, "y": 1.3, "w": 0.2, "d": 0.2, "h": 30, "wall": "oxblood", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "factory", "name": "Factory", "kind": "processor", "produces": ["goods"], "consumes": ["steel", "lumber", "textiles"], "era": [1800, 2100],
+      "size": [2, 2], "density": 0.7, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.6, "nearCity": [1, 10], "spacing": 12 },
+      "look": { "ground": ["slate", "shale", "stone"], "parts": [
+        { "t": "box", "x": 0.1, "y": 0.15, "w": 0.85, "d": 1.6, "h": 12, "wall": "brick", "roof": "slate", "roofType": "gableY", "roofH": 6, "windows": "cream" },
+        { "t": "box", "x": 1.0, "y": 0.15, "w": 0.85, "d": 1.6, "h": 12, "wall": "brick", "roof": "slate", "roofType": "gableY", "roofH": 6, "windows": "cream" },
+        { "t": "box", "x": 1.7, "y": 1.7, "w": 0.18, "d": 0.18, "h": 30, "wall": "oxblood", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "machine_works", "name": "Machine Works", "kind": "processor", "produces": ["machinery"], "consumes": ["steel"], "era": [1840, 2100],
+      "size": [2, 2], "density": 0.4, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.6, "nearCity": [1, 10], "spacing": 14 },
+      "look": { "ground": ["slate", "shale", "steel"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 1.6, "d": 1.1, "h": 13, "wall": "steel", "roof": "slate", "roofType": "gableX", "roofH": 5, "windows": "gold" },
+        { "t": "box", "x": 0.3, "y": 1.45, "w": 0.4, "d": 0.4, "h": 6, "wall": "slate", "roof": "night" },
+        { "t": "box", "x": 1.6, "y": 1.5, "w": 0.18, "d": 0.18, "h": 26, "wall": "shale", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "cement_plant", "name": "Cement Plant", "kind": "processor", "produces": ["cement"], "consumes": ["rock", "coal"], "era": [1840, 2100],
+      "size": [2, 2], "density": 0.4, "rate": 12,
+      "placement": { "terrain": ["grass", "sand", "rough"], "maxHeight": 0.7, "nearCity": [2, 14], "spacing": 14 },
+      "look": { "ground": ["stone", "fog", "bone"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.9, "w": 1.0, "d": 0.8, "h": 10, "wall": "stone", "roof": "shale", "roofType": "flat" },
+        { "t": "box", "x": 0.25, "y": 0.2, "w": 0.35, "d": 0.35, "h": 24, "wall": "fog", "roof": "steel", "roofType": "pyramid", "roofH": 3 },
+        { "t": "box", "x": 0.75, "y": 0.2, "w": 0.35, "d": 0.35, "h": 24, "wall": "fog", "roof": "steel", "roofType": "pyramid", "roofH": 3 },
+        { "t": "box", "x": 1.5, "y": 0.4, "w": 0.18, "d": 0.18, "h": 28, "wall": "stone", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "refinery", "name": "Oil Refinery", "kind": "processor", "produces": ["petroleum"], "consumes": ["oil"], "era": [1860, 2100],
+      "size": [2, 2], "density": 0.45, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.5, "nearCity": [3, 16], "spacing": 16 },
+      "look": { "ground": ["shale", "stone", "fog"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.15, "w": 0.5, "d": 0.5, "h": 10, "wall": "fog", "roof": "bone", "roofType": "flat" },
+        { "t": "box", "x": 0.15, "y": 1.0, "w": 0.5, "d": 0.5, "h": 10, "wall": "fog", "roof": "bone", "roofType": "flat" },
+        { "t": "box", "x": 1.0, "y": 0.3, "w": 0.2, "d": 0.2, "h": 30, "wall": "steel", "roof": "ink" },
+        { "t": "box", "x": 1.4, "y": 0.5, "w": 0.15, "d": 0.15, "h": 36, "wall": "slate", "roof": "ember", "smoke": true },
+        { "t": "box", "x": 0.95, "y": 1.1, "w": 0.8, "d": 0.6, "h": 6, "wall": "steel", "roof": "slate", "roofType": "flat" }
+      ] }
+    },
+    {
+      "id": "chemical_plant", "name": "Chemical Plant", "kind": "processor", "produces": ["chemicals"], "consumes": ["petroleum", "coal"], "era": [1880, 2100],
+      "size": [2, 2], "density": 0.35, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.55, "nearCity": [3, 16], "spacing": 16 },
+      "look": { "ground": ["slate", "shale", "teal"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 1.0, "d": 0.7, "h": 11, "wall": "fog", "roof": "teal", "roofType": "flat", "windows": "slate" },
+        { "t": "box", "x": 1.3, "y": 0.25, "w": 0.4, "d": 0.4, "h": 14, "wall": "teal", "roof": "foam", "roofType": "pyramid", "roofH": 3 },
+        { "t": "box", "x": 0.4, "y": 1.2, "w": 0.4, "d": 0.4, "h": 14, "wall": "teal", "roof": "foam", "roofType": "pyramid", "roofH": 3 },
+        { "t": "box", "x": 1.4, "y": 1.3, "w": 0.15, "d": 0.15, "h": 30, "wall": "steel", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "fertilizer_plant", "name": "Fertilizer Plant", "kind": "processor", "produces": ["fertilizer"], "consumes": ["chemicals"], "era": [1900, 2100],
+      "size": [2, 2], "density": 0.3, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.55, "nearCity": [3, 16], "spacing": 16 },
+      "look": { "ground": ["moss", "grass", "wheat"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.25, "w": 1.3, "d": 0.8, "h": 10, "wall": "wheat", "roof": "moss", "roofType": "gableX", "roofH": 5 },
+        { "t": "box", "x": 1.4, "y": 1.3, "w": 0.35, "d": 0.35, "h": 16, "wall": "fog", "roof": "moss", "roofType": "pyramid", "roofH": 4 }
+      ] }
+    },
+    {
+      "id": "tire_plant", "name": "Tire Plant", "kind": "processor", "produces": ["tires"], "consumes": ["rubber", "chemicals"], "era": [1900, 2100],
+      "size": [2, 2], "density": 0.3, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.55, "nearCity": [2, 12], "spacing": 16 },
+      "look": { "ground": ["slate", "night", "shale"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 1.6, "d": 1.0, "h": 12, "wall": "night", "roof": "ink", "roofType": "flat", "windows": "gold" },
+        { "t": "box", "x": 0.3, "y": 1.4, "w": 0.18, "d": 0.18, "h": 26, "wall": "slate", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "auto_plant", "name": "Automobile Plant", "kind": "processor", "produces": ["autos"], "consumes": ["steel", "tires"], "era": [1905, 2100],
+      "size": [2, 2], "density": 0.3, "rate": 12,
+      "placement": { "terrain": ["grass", "sand"], "maxHeight": 0.55, "nearCity": [1, 10], "spacing": 18 },
+      "look": { "ground": ["steel", "fog", "fog"], "parts": [
+        { "t": "box", "x": 0.1, "y": 0.1, "w": 1.8, "d": 1.2, "h": 12, "wall": "fog", "roof": "steel", "roofType": "flat", "windows": "sky" },
+        { "t": "dots", "x": 0.2, "y": 1.45, "w": 1.6, "d": 0.4, "c": "brick", "c2": "sky", "n": 6 }
+      ] }
+    },
+    {
+      "id": "aluminum_mill", "name": "Aluminum Mill", "kind": "processor", "produces": ["aluminum"], "consumes": ["bauxite", "coal"], "era": [1890, 2100],
+      "size": [2, 2], "density": 0.3, "rate": 12,
+      "placement": { "terrain": ["grass", "sand", "rough"], "maxHeight": 0.6, "nearCity": [3, 16], "spacing": 16 },
+      "look": { "ground": ["steel", "fog", "foam"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.5, "w": 1.6, "d": 1.1, "h": 12, "wall": "steel", "roof": "foam", "roofType": "gableX", "roofH": 4, "windows": "ember" },
+        { "t": "box", "x": 0.3, "y": 0.1, "w": 0.2, "d": 0.2, "h": 28, "wall": "fog", "roof": "ink", "smoke": true },
+        { "t": "box", "x": 0.8, "y": 0.1, "w": 0.2, "d": 0.2, "h": 28, "wall": "fog", "roof": "ink", "smoke": true }
+      ] }
+    },
+    {
+      "id": "munitions_plant", "name": "Munitions Works", "kind": "processor", "produces": ["weapons"], "consumes": ["steel", "chemicals"], "era": [1850, 2100],
+      "size": [2, 2], "density": 0.25, "rate": 12,
+      "placement": { "terrain": ["grass", "forest", "rough"], "maxHeight": 0.7, "nearCity": [4, 18], "spacing": 20 },
+      "look": { "ground": ["pine", "moss", "grass"], "parts": [
+        { "t": "box", "x": 0.15, "y": 0.2, "w": 0.7, "d": 1.5, "h": 9, "wall": "moss", "roof": "pine", "roofType": "gableY", "roofH": 4 },
+        { "t": "box", "x": 1.1, "y": 0.2, "w": 0.7, "d": 1.5, "h": 9, "wall": "moss", "roof": "pine", "roofType": "gableY", "roofH": 4 },
+        { "t": "fence", "x": 0.05, "y": 0.05, "w": 1.9, "d": 1.9, "c": "steel" }
+      ] }
+    }
+  ]
+}

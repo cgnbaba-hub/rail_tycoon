@@ -1,0 +1,12 @@
+{
+  "_doc": "City building styles. ring = allowed normalised distance band from city centre [min,max]; minClass = smallest city class index (0=village). Heights in px at 32px tiles; jitter adds 0..h*jitter.",
+  "buildings": [
+    { "id": "cottage", "minClass": 0, "ring": [0.0, 1.0], "weight": 5, "w": 0.45, "d": 0.4, "h": 7, "jitter": 0.3, "roofType": "gable", "roofH": 4, "walls": ["cream", "bone", "wheat", "fog"], "roofs": ["tile", "oxblood", "slate", "rust"], "windows": null, "pairChance": 0.45 },
+    { "id": "house", "minClass": 0, "ring": [0.0, 0.9], "weight": 4, "w": 0.6, "d": 0.5, "h": 9, "jitter": 0.3, "roofType": "gable", "roofH": 5, "walls": ["cream", "bone", "brick", "wheat"], "roofs": ["tile", "oxblood", "slate", "shale"], "windows": "slate", "pairChance": 0.0 },
+    { "id": "rowhouses", "minClass": 1, "ring": [0.0, 0.7], "weight": 4, "w": 0.8, "d": 0.45, "h": 11, "jitter": 0.25, "roofType": "gable", "roofH": 4, "walls": ["brick", "oxblood", "cream"], "roofs": ["slate", "shale"], "windows": "gold", "pairChance": 0.0 },
+    { "id": "shop", "minClass": 1, "ring": [0.0, 0.5], "weight": 3, "w": 0.7, "d": 0.65, "h": 12, "jitter": 0.3, "roofType": "flat", "roofH": 0, "walls": ["brick", "stone", "cream", "teal"], "roofs": ["shale", "slate"], "windows": "gold", "pairChance": 0.0 },
+    { "id": "church", "minClass": 1, "ring": [0.1, 0.5], "weight": 0.5, "w": 0.55, "d": 0.75, "h": 12, "jitter": 0.0, "roofType": "gable", "roofH": 6, "walls": ["stone", "bone"], "roofs": ["slate"], "windows": "sky", "steeple": 28, "unique": true, "pairChance": 0.0 },
+    { "id": "office", "minClass": 2, "ring": [0.0, 0.35], "weight": 3, "w": 0.7, "d": 0.7, "h": 22, "jitter": 0.6, "roofType": "flat", "roofH": 0, "walls": ["stone", "fog", "brick", "steel"], "roofs": ["slate", "shale"], "windows": "gold", "pairChance": 0.0 },
+    { "id": "tower", "minClass": 3, "ring": [0.0, 0.22], "weight": 3, "w": 0.65, "d": 0.65, "h": 40, "jitter": 0.6, "roofType": "flat", "roofH": 0, "walls": ["fog", "stone", "steel", "bone"], "roofs": ["slate", "steel"], "windows": "sky", "pairChance": 0.0 }
+  ]
+}

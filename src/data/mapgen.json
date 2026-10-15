@@ -1,0 +1,35 @@
+{
+  "_doc": "Procedural map generation parameters. Heights are integer levels at tile corners, 0 = sea level.",
+  "maxHeight": 16,
+  "sizes": [64, 128, 192, 256],
+  "startYears": [1830, 1950],
+  "defaults": { "size": 128, "water": "normal", "hills": "normal", "forests": "normal", "cities": "normal", "startYear": 1850 },
+  "noise": { "baseScale": 0.018, "octaves": 6, "lacunarity": 2.03, "gain": 0.5 },
+  "edgeFalloff": { "width": 0.22, "strength": 0.6 },
+  "water": { "none": 0.04, "low": 0.16, "normal": 0.28, "high": 0.42 },
+  "hills": {
+    "flat": { "exponent": 1.9, "range": 0.45 },
+    "normal": { "exponent": 1.35, "range": 0.8 },
+    "mountainous": { "exponent": 1.0, "range": 1.0 }
+  },
+  "moisture": { "scale": 0.035, "octaves": 4 },
+  "forests": { "few": 0.68, "normal": 0.58, "many": 0.48 },
+  "scatteredTreeChance": 0.04,
+  "rockHeight": 0.6,
+  "snowHeight": 0.84,
+  "beachMaxHeight": 1,
+  "rivers": { "perTenThousandTiles": 2.2, "minSourceHeight": 0.42, "minLength": 10, "maxLength": 260 },
+  "cities": {
+    "perTenThousandTiles": { "few": 3, "normal": 5, "many": 8 },
+    "minSpacing": 11,
+    "areaPerMetropolis": 20000,
+    "maxHeightFraction": 0.62,
+    "classes": [
+      { "id": "village", "name": "Village", "weight": 4, "popMin": 300, "popMax": 900, "peoplePerBuilding": 120 },
+      { "id": "town", "name": "Town", "weight": 4, "popMin": 1200, "popMax": 4500, "peoplePerBuilding": 180 },
+      { "id": "city", "name": "City", "weight": 2, "popMin": 6000, "popMax": 16000, "peoplePerBuilding": 280 },
+      { "id": "metropolis", "name": "Metropolis", "weight": 0.6, "popMin": 22000, "popMax": 48000, "peoplePerBuilding": 420 }
+    ]
+  },
+  "industries": { "densityScale": 1.8, "minGap": 1 }
+}

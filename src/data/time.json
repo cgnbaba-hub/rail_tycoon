@@ -1,0 +1,9 @@
+{
+  "_doc": "Simulation clock. A tick is one in-game hour. Real time per day at 1x speed controls overall pacing.",
+  "ticksPerDay": 24,
+  "realMsPerDayAtSpeed1": 450,
+  "speeds": [1, 2, 4, 8],
+  "maxTicksPerFrame": 1200,
+  "monthNames": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  "monthDays": [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+}

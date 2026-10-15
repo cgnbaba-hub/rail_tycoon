@@ -1,0 +1,442 @@
+{
+  "_doc": "Cargo flow, revenue, running costs and train physics. See BALANCING.md for every formula.",
+  "model": "basic",
+  "models": {
+    "basic": {
+      "name": "Basic",
+      "nonDemandedFactor": 0.75,
+      "processorsNeedInputs": false,
+      "saturation": 0.6,
+      "priceLevels": false,
+      "buyIndustries": false,
+      "desc": "Stations take any cargo at 75%; plants run without inputs; gentle demand saturation."
+    },
+    "advanced": {
+      "name": "Advanced",
+      "nonDemandedFactor": 0.5,
+      "processorsNeedInputs": true,
+      "saturation": 1.0,
+      "priceLevels": false,
+      "buyIndustries": false,
+      "desc": "Undemanded cargo pays half; plants only produce what you feed them."
+    },
+    "expert": {
+      "name": "Expert",
+      "nonDemandedFactor": 0.1,
+      "processorsNeedInputs": true,
+      "saturation": 1.3,
+      "priceLevels": true,
+      "buyIndustries": true,
+      "desc": "Undemanded cargo pays almost nothing; cargo prices move; you can buy industries."
+    }
+  },
+  "townSupply": {
+    "passengers": 0.0026,
+    "mail": 0.0009
+  },
+  "townDemand": [
+    [
+      "passengers",
+      "mail",
+      "food"
+    ],
+    [
+      "passengers",
+      "mail",
+      "food",
+      "goods",
+      "lumber",
+      "milk"
+    ],
+    [
+      "passengers",
+      "mail",
+      "food",
+      "goods",
+      "lumber",
+      "milk",
+      "textiles",
+      "paper",
+      "petroleum",
+      "cement"
+    ],
+    [
+      "passengers",
+      "mail",
+      "food",
+      "goods",
+      "lumber",
+      "milk",
+      "textiles",
+      "paper",
+      "petroleum",
+      "cement",
+      "autos",
+      "machinery",
+      "steel"
+    ]
+  ],
+  "processorWithoutInputs": 2,
+  "maxWaitingMonths": 3,
+  "timeValue": {
+    "idealMph": 40,
+    "halfLifeDays": {
+      "fast": 8,
+      "medium": 18,
+      "slow": 45
+    },
+    "graceDays": 2,
+    "minFactor": 0.25
+  },
+  "loading": {
+    "hoursPerLoad": 3,
+    "minDwellHours": 4,
+    "maxWaitDays": 60
+  },
+  "platforms": {
+    "depot": 2,
+    "station": 3,
+    "terminal": 4
+  },
+  "fuelPrice": {
+    "wood": 0.9,
+    "coal": 1.0,
+    "diesel": 1.3,
+    "electric": 0.8
+  },
+  "trackMaintenance": {
+    "perTileYear": 90,
+    "doubleFactor": 1.6,
+    "bridgeFactor": 2.5,
+    "tunnelFactor": 3.0,
+    "stationPerYear": {
+      "depot": 1500,
+      "station": 3000,
+      "terminal": 6000
+    }
+  },
+  "engineWear": {
+    "maintenancePerYearOfAge": 0.05
+  },
+  "breakdowns": {
+    "perDayAtReference": 0.0022,
+    "referenceReliability": 0.85,
+    "ageExponent": 2,
+    "repairDays": [
+      2,
+      5
+    ],
+    "repairCostFraction": 0.04
+  },
+  "wrecks": {
+    "enabledByDefault": true,
+    "perTileAtLifespan": 4e-06,
+    "ageExponent": 3,
+    "overweightBridgeFactor": 50
+  },
+  "resale": {
+    "newFraction": 0.75,
+    "perYear": 0.04,
+    "floor": 0.15
+  },
+  "physics": {
+    "tilesPerTickPerMph": 0.0065,
+    "physicsSecondsPerTick": 40,
+    "brakeMphPerTick": 6,
+    "rollingLbfPerTon": [
+      2.0,
+      0.02,
+      0.0006
+    ],
+    "gradeLbfPerTonPercent": 20,
+    "adhesionCoefficient": 0.25,
+    "stationApproachMph": 12,
+    "overweightBridgeMph": 8,
+    "carLength": 0.42,
+    "engineLength": 0.52,
+    "tenderLength": 0.32
+  },
+  "saturation": {
+    "_doc": "Demand level per station and cargo (1 = full price). Delivering n loads lowers it by dropPerCapacity x model.saturation x n / capacity; it recovers towards 1 with the given half-life. capacity = loads/month the catchment absorbs.",
+    "townCapacityPerThousand": {
+      "passengers": 6,
+      "mail": 2.5,
+      "food": 1.6,
+      "goods": 1.4,
+      "milk": 1.2,
+      "default": 1.0
+    },
+    "minTownCapacity": 3,
+    "industryCapacityFactor": 1.5,
+    "dropPerCapacity": 0.12,
+    "recoveryHalfLifeDays": 45,
+    "floor": 0.15,
+    "historyMonths": 12
+  },
+  "cycle": {
+    "_doc": "Five-state economic cycle. The next state and its timing are decided when a state begins; business confidence starts moving towards the next state's level warningMonths before the change, and headlines hint at it.",
+    "states": [
+      {
+        "id": "boom",
+        "name": "Boom",
+        "revenue": 1.15,
+        "growth": 1.6,
+        "confidence": 88,
+        "symbol": "▲▲"
+      },
+      {
+        "id": "prosperity",
+        "name": "Prosperity",
+        "revenue": 1.07,
+        "growth": 1.25,
+        "confidence": 70,
+        "symbol": "▲"
+      },
+      {
+        "id": "normal",
+        "name": "Normal",
+        "revenue": 1.0,
+        "growth": 1.0,
+        "confidence": 55,
+        "symbol": "•"
+      },
+      {
+        "id": "recession",
+        "name": "Recession",
+        "revenue": 0.88,
+        "growth": 0.5,
+        "confidence": 35,
+        "symbol": "▼"
+      },
+      {
+        "id": "panic",
+        "name": "Panic",
+        "revenue": 0.75,
+        "growth": 0.0,
+        "confidence": 15,
+        "symbol": "▼▼"
+      }
+    ],
+    "start": "normal",
+    "transitions": {
+      "boom": {
+        "prosperity": 6,
+        "normal": 2,
+        "recession": 1.5
+      },
+      "prosperity": {
+        "boom": 2,
+        "normal": 5,
+        "recession": 1.5
+      },
+      "normal": {
+        "prosperity": 4,
+        "recession": 3,
+        "boom": 0.5
+      },
+      "recession": {
+        "normal": 5,
+        "panic": 1.5,
+        "prosperity": 0.5
+      },
+      "panic": {
+        "recession": 4,
+        "normal": 2
+      }
+    },
+    "durationMonths": [
+      8,
+      30
+    ],
+    "warningMonths": [
+      3,
+      6
+    ],
+    "confidenceNoise": 3,
+    "headlines": {
+      "better": [
+        "Freight orders climb as mills add night shifts",
+        "Bankers report brisk demand for loans",
+        "Harvest outlook strong; merchants stock up",
+        "New factories announced along the river",
+        "Immigrant ships arrive full; towns expand",
+        "Bond markets steady as confidence returns"
+      ],
+      "worse": [
+        "Bank failures reported in the eastern cities",
+        "Mills cut shifts amid falling orders",
+        "Credit tightens; merchants delay purchases",
+        "Grain prices slide as warehouses fill",
+        "Speculators flee railroad shares",
+        "Foreign lenders call in their loans"
+      ],
+      "same": [
+        "Markets quiet; traders await the harvest",
+        "Steady trade along the main lines",
+        "Telegraph offices report ordinary business",
+        "Churches and schools rise in the growing towns"
+      ]
+    }
+  },
+  "priceLevels": {
+    "_doc": "Expert model only: each cargo's price index random-walks monthly (volatility) with pull back to 1 (reversion), clamped to [min, max].",
+    "volatility": 0.05,
+    "reversion": 0.12,
+    "min": 0.65,
+    "max": 1.45
+  },
+  "cityGrowth": {
+    "_doc": "Annual growth = (natural + service bonus + supply bonus) x economy growth factor, applied monthly. Service = share of the town's passengers/mail you pick up; supply = demanded freight delivered per 1000 people.",
+    "naturalPerYear": 0.004,
+    "serviceBonusPerYear": 0.05,
+    "supplyBonusPerYear": 0.04,
+    "serviceTarget": 0.6,
+    "supplyTargetPerThousandPerYear": 2.0,
+    "maxNewBuildingsPerMonth": 3,
+    "newIndustryChanceOnClassUp": 0.8
+  },
+  "industryGrowth": {
+    "_doc": "Yearly: raw industries whose output is mostly picked up grow, neglected ones shrink.",
+    "servedRatio": 0.6,
+    "growth": 0.12,
+    "neglectRatio": 0.2,
+    "decline": 0.06,
+    "min": 0.5,
+    "max": 2.5
+  },
+  "ownership": {
+    "_doc": "Expert model: buy industries. Profit/month = output loads x cargo base x marginFraction x economy - upkeep/12. Price = priceYears x yearly profit, valuing it at no less than potentialShare of full-capacity profit (and at least minPrice). Sold for sellFraction of the price.",
+    "marginFraction": 0.6,
+    "upkeepPerYear": 1500,
+    "priceYears": 5,
+    "potentialShare": 0.4,
+    "minPrice": 25000,
+    "sellFraction": 0.8
+  },
+  "improvements": [
+    {
+      "id": "water_tower",
+      "name": "Water tower",
+      "cost": 15000,
+      "upkeep": 500,
+      "effects": {
+        "dwell": 0.7
+      },
+      "desc": "Steam engines water up quickly: stops here are 30% shorter."
+    },
+    {
+      "id": "sand_house",
+      "name": "Sand house",
+      "cost": 12000,
+      "upkeep": 400,
+      "effects": {
+        "adhesion": 1.2
+      },
+      "desc": "Sanded rails: +20% grip on the next trip, for steep climbs."
+    },
+    {
+      "id": "maintenance_shop",
+      "name": "Maintenance shop",
+      "cost": 40000,
+      "upkeep": 2000,
+      "effects": {
+        "breakdown": 0.5
+      },
+      "desc": "Trains serviced here break down half as often for 60 days."
+    },
+    {
+      "id": "roundhouse",
+      "name": "Roundhouse",
+      "cost": 60000,
+      "upkeep": 3000,
+      "requires": "maintenance_shop",
+      "effects": {
+        "maintenance": 0.7,
+        "breakdown": 0.8
+      },
+      "desc": "Overhauls: 30% lower engine maintenance and fewer breakdowns for 60 days."
+    },
+    {
+      "id": "hotel",
+      "name": "Hotel",
+      "cost": 50000,
+      "upkeep": 1500,
+      "effects": {
+        "revenue": {
+          "passengers": 1.2
+        },
+        "supply": {
+          "passengers": 1.15
+        }
+      },
+      "desc": "+20% passenger revenue here, +15% passengers."
+    },
+    {
+      "id": "restaurant",
+      "name": "Restaurant",
+      "cost": 25000,
+      "upkeep": 800,
+      "effects": {
+        "revenue": {
+          "passengers": 1.1
+        }
+      },
+      "desc": "+10% passenger revenue here."
+    },
+    {
+      "id": "post_office",
+      "name": "Post office",
+      "cost": 25000,
+      "upkeep": 800,
+      "effects": {
+        "revenue": {
+          "mail": 1.25
+        },
+        "supply": {
+          "mail": 1.25
+        }
+      },
+      "desc": "+25% mail revenue and mail supply here."
+    },
+    {
+      "id": "warehouse",
+      "name": "Warehouse",
+      "cost": 35000,
+      "upkeep": 1200,
+      "effects": {
+        "storage": 2
+      },
+      "desc": "Holds twice as much waiting cargo."
+    },
+    {
+      "id": "cold_storage",
+      "name": "Cold storage",
+      "cost": 40000,
+      "upkeep": 1500,
+      "effects": {
+        "revenue": {
+          "food": 1.15,
+          "milk": 1.15
+        },
+        "fresh": 4
+      },
+      "desc": "Perishables loaded here get 4 extra fresh days; +15% on food and milk."
+    },
+    {
+      "id": "livestock_pens",
+      "name": "Livestock pens",
+      "cost": 20000,
+      "upkeep": 600,
+      "effects": {
+        "supply": {
+          "livestock": 1.25
+        },
+        "revenue": {
+          "livestock": 1.1
+        }
+      },
+      "desc": "+25% livestock supply, +10% livestock revenue."
+    }
+  ],
+  "serviceDays": 60
+}
