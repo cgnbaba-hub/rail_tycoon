@@ -1,4 +1,5 @@
-import { CARGO_BY_ID, FINANCE } from '../data';
+import { CARGO_BY_ID, FINANCE, MANAGER_BY_ID } from '../data';
+import { describeMods } from '../sim/modifiers';
 import { PLAYER, account, liquidationPrice } from '../sim/chairman';
 import { CAPITAL_CATEGORIES, EXPENSE_LABELS, FINANCING_LABELS, NON_OPERATING, type Company, type ExpenseCategory, type FinancingCategory, type PricePoint } from '../sim/company';
 import { blockSize, issueBlocked } from '../sim/finance';
@@ -11,7 +12,7 @@ import { holderColor, holderName } from './rivals';
 import { fmtMoney } from './tools';
 import { confirmModal, type TrainUiHost } from './trains';
 
-export type FinanceTab = 'books' | 'bonds' | 'stock' | 'portfolio';
+export type FinanceTab = 'books' | 'bonds' | 'stock' | 'portfolio' | 'manager';
 
 function row(label: string, value: string, cls = ''): string {
   return `<div class="kv ${cls}"><span>${esc(label)}</span><b>${value}</b></div>`;
@@ -327,6 +328,30 @@ function boardRow(game: Game, c: Company): string {
   return row('Board support today', `<span class="${v.support < 0.5 ? 'bad' : v.warn ? 'warn' : 'good'}">${Math.round(v.support * 100)}%</span>${v.strikes ? ' <small class="bad">1 strike</small>' : ''}`);
 }
 
+function managerCard(id: string, action: string): string {
+  const d = MANAGER_BY_ID.get(id);
+  if (!d) return '';
+  return `<div class="mgr-card"><div class="mgr-name"><b>${esc(d.name)}</b> <small>${esc(d.title)}</small></div>
+    <p>${esc(d.desc)}</p>
+    <small>${esc(describeMods(d.effects).join(', '))}</small>
+    ${row('Salary', `${fmtMoney(d.salary)}/yr`)}${action}</div>`;
+}
+
+function managerHtml(game: Game): string {
+  const c = game.company;
+  const cur = c.manager
+    ? managerCard(c.manager, '<div class="actions"><button class="btn small danger" data-act="fire">Dismiss</button></div>')
+    : '<p class="hint">No manager hired. A manager costs a salary but improves one part of the business.</p>';
+  const offers = game.managerOffers
+    .map((id) => managerCard(id, `<div class="actions"><button class="btn small primary" data-hire="${id}">Hire · fee ${fmtMoney(game.managerFee(id))}</button></div>`))
+    .join('');
+  return `<div class="fin-grid">
+    <div><div class="section">Your manager</div>${cur}
+      <p class="hint">You can employ one manager at a time. New candidates apply every January. Salaries are an operating cost.</p></div>
+    <div><div class="section">Candidates</div>${offers || '<p class="hint">No candidates this year.</p>'}</div>
+  </div>`;
+}
+
 function portfolioHtml(game: Game, amount: number): string {
   const ch = game.chairman;
   const acc = account(ch, game.companies);
@@ -395,6 +420,7 @@ const TABS: Array<[FinanceTab, string]> = [
   ['bonds', 'Bonds'],
   ['stock', 'Stock'],
   ['portfolio', 'Your portfolio'],
+  ['manager', 'Manager'],
 ];
 
 interface FinanceState {
@@ -413,7 +439,15 @@ export function openFinance(host: TrainUiHost, tab?: FinanceTab, target?: number
   const game = host.game;
   const c = game.company;
   const body =
-    state.tab === 'books' ? booksHtml(game) : state.tab === 'bonds' ? bondsHtml(game) : state.tab === 'stock' ? stockHtml(game, state.range) : portfolioHtml(game, state.amount);
+    state.tab === 'books'
+      ? booksHtml(game)
+      : state.tab === 'bonds'
+        ? bondsHtml(game)
+        : state.tab === 'stock'
+          ? stockHtml(game, state.range)
+          : state.tab === 'manager'
+            ? managerHtml(game)
+            : portfolioHtml(game, state.amount);
   const m = host.openModal(
     `<div class="fin-head"><h2>${esc(c.name)} <small>${esc(c.ticker)}</small></h2>
       <div class="tabs" role="tablist">${TABS.map(([id, label]) => `<button class="btn small" role="tab" data-tab="${id}" aria-selected="${state.tab === id}">${esc(label)}</button>`).join('')}</div></div>
@@ -442,6 +476,19 @@ export function openFinance(host: TrainUiHost, tab?: FinanceTab, target?: number
   );
   const on = (sel: string, fn: (b: HTMLButtonElement) => void) => m.querySelectorAll<HTMLButtonElement>(sel).forEach((b) => b.addEventListener('click', () => fn(b)));
 
+  on('[data-hire]', (b) => {
+    const id = b.dataset.hire!;
+    const def = MANAGER_BY_ID.get(id)!;
+    confirmModal(host, `Hire ${def.name}?`, `Signing fee ${fmtMoney(game.managerFee(id))}, then ${fmtMoney(def.salary)} a year.${c.manager ? ` ${MANAGER_BY_ID.get(c.manager)?.name ?? 'Your manager'} leaves.` : ''}`, 'Hire').then((yes) => {
+      if (!yes) return reopen();
+      const r = game.hireManager(id);
+      done(r.ok, r.ok ? `${def.name} joins ${c.name}` : r.error ?? 'Cannot hire.', 'info');
+    });
+  });
+  on('[data-act="fire"]', () => {
+    const r = game.fireManager();
+    done(r.ok, r.ok ? 'Manager dismissed' : r.error ?? 'Cannot dismiss.', 'info');
+  });
   on('[data-act="bond"]', () => {
     const rate = game.newBondRate();
     confirmModal(host, `Issue a ${fmtMoney(FINANCE.bonds.block)} bond?`, `It costs ${(rate * 100).toFixed(2)}% a year (${fmtMoney(Math.round(FINANCE.bonds.block * rate))}) for up to ${FINANCE.bonds.termYears} years. You can repay it early.`, 'Issue bond').then((yes) => {

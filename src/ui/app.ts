@@ -26,6 +26,7 @@ import { prefs, onPrefs, uiFontTarget } from './prefs';
 import { openSaves, writeSave } from './saves';
 import { openSettings } from './settings';
 import type { Advice } from '../sim/advisor';
+import { describeMods } from '../sim/modifiers';
 
 const COMPASS = ['N', 'E', 'S', 'W'];
 const PAN_SPEED = 520; // buffer px per second for keyboard panning
@@ -318,6 +319,16 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         this.toast(e.text, e.tone < 0 ? 'error' : 'info');
         this.showNews(e.text, e.tone);
         break;
+      case 'event': {
+        const text = e.started
+          ? `${e.def.headline} (${describeMods(e.def.effects).join(', ')}${e.def.months[1] === 0 ? '; permanent' : ''})`
+          : `${e.def.name} is over: things return to normal.`;
+        logEvent(g, 'news', text, e.started ? e.def.tone : 0);
+        this.showNews(text, e.started ? e.def.tone : 0);
+        if (e.started) this.toast(e.def.headline, e.def.tone < 0 ? 'error' : 'money');
+        this.econDirty = true;
+        break;
+      }
       case 'rival':
         logEvent(g, 'rivals', e.text, e.tone, { company: e.company });
         this.showNews(e.text, e.tone);

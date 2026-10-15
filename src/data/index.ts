@@ -17,6 +17,8 @@ import economyJson from './economy.json';
 import financeJson from './finance.json';
 import aiJson from './ai.json';
 import advisorJson from './advisor.json';
+import eventsJson from './events.json';
+import managersJson from './managers.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -449,6 +451,45 @@ export interface AdvisorData {
   maxItems: number;
 }
 export const ADVISOR: AdvisorData = advisorJson as AdvisorData;
+
+/** What an event or a manager changes (see sim/modifiers.ts). */
+export interface ModifierSpec {
+  revenue?: Record<string, number>;
+  supply?: Record<string, number>;
+  construction?: number;
+  fuel?: number;
+  maintenance?: number;
+  breakdowns?: number;
+  interest?: number;
+  growth?: number;
+  goodwill?: number;
+  /** Added to business confidence once, when the event starts. */
+  confidence?: number;
+}
+
+export interface EventDef {
+  id: string;
+  name: string;
+  era: [number, number];
+  chancePerYear: number;
+  /** [min, max] months; [0, 0] = permanent technology. */
+  months: [number, number];
+  tone: number;
+  headline: string;
+  effects: ModifierSpec;
+}
+export const EVENTS = eventsJson as unknown as { cooldownMonths: number; events: EventDef[] };
+
+export interface ManagerDef {
+  id: string;
+  name: string;
+  title: string;
+  salary: number;
+  desc: string;
+  effects: ModifierSpec;
+}
+export const MANAGERS = managersJson as unknown as { fee: number; offered: number; managers: ManagerDef[] };
+export const MANAGER_BY_ID: ReadonlyMap<string, ManagerDef> = new Map(MANAGERS.managers.map((m) => [m.id, m]));
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];

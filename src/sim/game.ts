@@ -1,6 +1,8 @@
-import { AI, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
+import { AI, MANAGERS, MANAGER_BY_ID, type EventDef, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
 import { AIBaron } from './ai';
 import { Statistics } from './stats';
+import { EventSystem } from './events';
+import { cargoFactor, combineMods, type Modifiers } from './modifiers';
 import { boardVote, checkSolvency, type BoardVote } from './rivals';
 import { Chairman, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
 import { Company, type ExpenseCategory, type YearRecord } from './company';
@@ -72,6 +74,7 @@ export type GameEvent =
   | { type: 'yearEnd'; report: YearEndReport }
   | { type: 'rival'; company: number; text: string; tone: number }
   | { type: 'gameOver'; over: GameOver }
+  | { type: 'event'; def: EventDef; started: boolean }
   | TrainEvent;
 
 export interface GameOver {
@@ -141,6 +144,14 @@ function ledgerSplit(b: CostBreakdown): Array<[ExpenseCategory, number]> {
   return out.filter(([, v]) => v !== 0);
 }
 
+/** A plan with its cost (and breakdown) scaled, e.g. by a manager or an event. */
+function scaleCost<T extends { cost: number; breakdown: CostBreakdown }>(plan: T, f: number): T {
+  if (f === 1) return plan;
+  const breakdown = { ...plan.breakdown };
+  for (const k of Object.keys(breakdown) as Array<keyof CostBreakdown>) breakdown[k] = Math.round(breakdown[k] * f);
+  return { ...plan, cost: Math.round(plan.cost * f), breakdown };
+}
+
 function fmt(n: number): string {
   return `$${Math.round(n).toLocaleString('en-US')}`;
 }
@@ -175,6 +186,11 @@ export class Game {
   readonly undoStack: UndoEntry[] = [];
   /** Monthly history for the statistics screen. */
   readonly stats = new Statistics();
+  /** Historical events in effect. */
+  readonly events: EventSystem;
+  /** Managers you can hire right now (ids; refreshed every January). */
+  managerOffers: string[] = [];
+  private readonly managerRng: Rng;
   /** Saved routes + consists for new trains ("route templates"). */
   readonly templates: RouteTemplate[] = [];
   private nextTemplateId = 1;
@@ -204,6 +220,9 @@ export class Game {
     this.economy = new Economy(this.world, this.settings.model, this.rng.fork(11));
     this.growthRng = this.rng.fork(12);
     this.marketRng = this.rng.fork(13);
+    this.events = new EventSystem(this.rng.fork(14));
+    this.managerRng = this.rng.fork(15);
+    this.refreshManagerOffers();
     for (const inv of this.investors) inv.yearStartWorth = this.netWorth(inv);
     this.trains = new TrainSystem(this.trainHost());
   }
@@ -225,6 +244,15 @@ export class Game {
         return game.year;
       },
       emit: (e) => this.emit(e),
+      mods: (owner: number) => {
+        const c = this.companyById(owner);
+        return c ? this.modsFor(c) : this.events.mods;
+      },
+      managerBonus: (owner: number, cargo: string) => {
+        const id = this.companyById(owner)?.manager;
+        const m = id ? MANAGER_BY_ID.get(id) : undefined;
+        return m?.effects.revenue ? cargoFactor(m.effects.revenue, cargo) : 1;
+      },
     };
   }
 
@@ -310,6 +338,7 @@ export class Game {
         this.emit({ type: 'month', date });
         if (date.month === 0) {
           this.financeYearly();
+          this.refreshManagerOffers();
           this.trains.yearly();
           this.economy.yearly();
           this.emit({ type: 'year', date });
@@ -318,8 +347,15 @@ export class Game {
     }
   }
 
-  /** Monthly economy: industries, cycle, owned-industry profits, then town growth. */
+  /** Monthly economy: events, industries, cycle, owned-industry profits, then town growth. */
   private monthly(date: GameDate): void {
+    const ev = this.events.monthly(this.day, this.year);
+    this.economy.mods = this.events.mods;
+    for (const def of ev.started) {
+      if (def.effects.confidence) this.economy.cycle.confidence = Math.max(0, Math.min(100, this.economy.cycle.confidence + def.effects.confidence));
+      this.emit({ type: 'event', def, started: true });
+    }
+    for (const def of ev.ended) this.emit({ type: 'event', def, started: false });
     const newsBefore = this.economy.cycle.news.length;
     const stateBefore = this.economy.cycle.state;
     const income = this.economy.monthly(this.day);
@@ -360,7 +396,10 @@ export class Game {
       add(total, st.owner, (tm.stationPerYear[st.kind] ?? 0) / 12);
       for (const id of st.improvements ?? []) add(upkeep, st.owner, (IMPROVEMENT_BY_ID.get(id)?.upkeep ?? 0) / 12);
     }
-    for (const [owner, v] of total) if (v > 0) this.companyById(owner)?.spend(this.year, 'trackMaintenance', v);
+    for (const [owner, v] of total) {
+      const c = this.companyById(owner);
+      if (c && v > 0) c.spend(this.year, 'trackMaintenance', v * this.modsFor(c).maintenance);
+    }
     for (const [owner, v] of upkeep) if (v > 0) this.companyById(owner)?.spend(this.year, 'improvementUpkeep', v);
   }
 
@@ -369,11 +408,11 @@ export class Game {
   // -------------------------------------------------------------------------------------
 
   planTrack(from: number, to: number, opts: TrackOptions, c: Company = this.company): TrackPlan {
-    return planTrack(this.world, from, to, { ...opts, owner: c.id });
+    return scaleCost(planTrack(this.world, from, to, { ...opts, owner: c.id }), this.modsFor(c).construction);
   }
 
   planStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y', c: Company = this.company): StationPlan {
-    return planStation(this.world, x, y, kind, axis, c.id);
+    return scaleCost(planStation(this.world, x, y, kind, axis, c.id), this.modsFor(c).construction);
   }
 
   /** Why company c can't act right now (game over for the player, or a defunct company). */
@@ -478,7 +517,7 @@ export class Game {
         ends.push(st);
         continue;
       }
-      const plan = planStation(this.world, e.x, e.y, e.kind, e.axis, c.id);
+      const plan = this.planStation(e.x, e.y, e.kind, e.axis, c);
       if (!plan.ok) return fail(plan.error ?? 'Cannot place station.');
       addSplit(plan.breakdown);
       ends.push(applyStationPlan(this.world, plan, this.day, tx, c.id));
@@ -492,7 +531,7 @@ export class Game {
     };
     const from = nearest(sa, sb);
     const to = nearest(sb, sa);
-    const plan = planTrack(this.world, from, to, o);
+    const plan = this.planTrack(from, to, o, c);
     if (!plan.ok) return fail(plan.error ?? 'No route.');
     const W = this.world.width;
     const straight = Math.hypot((from % W) - (to % W), Math.floor(from / W) - Math.floor(to / W));
@@ -569,7 +608,7 @@ export class Game {
 
   /** Rate a new bond would carry now. */
   newBondRate(c: Company = this.company): number {
-    return bondRate(this.rating(c, FINANCE.bonds.block), this.economy.cycle.state);
+    return Math.max(0.005, bondRate(this.rating(c, FINANCE.bonds.block), this.economy.cycle.state) + this.modsFor(c).interest);
   }
 
   /** An investor's net worth (cash + shares − shorts); yours by default. */
@@ -619,6 +658,8 @@ export class Game {
       // The chairman's salary is part of the month's costs.
       const salary = A.chairmanSalaryPerYear / 12;
       c.spend(closing, 'salary', salary);
+      const mgr = c.manager ? MANAGER_BY_ID.get(c.manager) : undefined;
+      if (mgr) c.spend(closing, 'salary', mgr.salary / 12);
       const boss = this.investorByKey(c.chairman);
       if (boss) boss.cash += salary;
       c.writeDown(closing, 'depreciation', (c.infrastructure * A.infrastructureDepreciation) / 12);
@@ -638,7 +679,7 @@ export class Game {
       // Lenders won't help a company whose debts exceed its assets: that one heads for bankruptcy.
       if (c.cash < 0 && checkSolvency(this, c)) {
         const blocks = Math.ceil(-c.cash / FINANCE.bonds.block);
-        const rate = bondRate(this.rating(c, blocks * FINANCE.bonds.block), this.economy.cycle.state) + FINANCE.bonds.emergencyPenalty;
+        const rate = Math.max(0.005, bondRate(this.rating(c, blocks * FINANCE.bonds.block), this.economy.cycle.state) + this.modsFor(c).interest) + FINANCE.bonds.emergencyPenalty;
         for (let i = 0; i < blocks; i++) c.addBond(this.year, this.day, FINANCE.bonds.block, rate, true);
         c.note(this.day, `Emergency bonds: ${fmt(blocks * FINANCE.bonds.block)} at ${(rate * 100).toFixed(1)}%`);
         this.financeEvent(c, `${c.name} ran out of cash: the bank forced ${blocks} emergency bond${blocks > 1 ? 's' : ''} at ${(rate * 100).toFixed(1)}%.`, -1);
@@ -702,7 +743,7 @@ export class Game {
     const block = FINANCE.bonds.block;
     const after = this.rating(c, block);
     if (after.def.id === 'D') return { ok: false, error: 'No lender will buy more bonds at this level of debt.', cost: 0 };
-    const rate = bondRate(after, this.economy.cycle.state);
+    const rate = Math.max(0.005, bondRate(after, this.economy.cycle.state) + this.modsFor(c).interest);
     c.addBond(this.year, this.day, block, rate);
     c.note(this.day, `Issued a ${fmt(block)} bond at ${(rate * 100).toFixed(1)}%`);
     return { ok: true, cost: -block, rate };
@@ -956,6 +997,61 @@ export class Game {
     t.engine = best.id;
     t.engineBuiltTick = this.tick;
     return { ok: true, cost };
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Events & managers
+  // -------------------------------------------------------------------------------------
+
+  /** Everything that changes company c's numbers: current events plus its manager. */
+  modsFor(c: Company): Modifiers {
+    const mgr = c.manager ? MANAGER_BY_ID.get(c.manager) : undefined;
+    return mgr ? combineMods(this.events.mods, mgr.effects) : this.events.mods;
+  }
+
+  /** Start an event now (scenarios, tests). */
+  forceEvent(id: string, months?: number): void {
+    const def = this.events.force(id, this.day, months);
+    this.economy.mods = this.events.mods;
+    if (def) this.emit({ type: 'event', def, started: true });
+  }
+
+  /** New candidates each January (never the one you employ). */
+  refreshManagerOffers(): void {
+    const pool = MANAGERS.managers.map((m) => m.id).filter((id) => id !== this.company.manager);
+    const out: string[] = [];
+    while (out.length < MANAGERS.offered && pool.length) out.push(pool.splice(this.managerRng.int(0, pool.length - 1), 1)[0]);
+    this.managerOffers = out;
+  }
+
+  /** Signing fee for a manager. */
+  managerFee(id: string): number {
+    return Math.round((MANAGER_BY_ID.get(id)?.salary ?? 0) * MANAGERS.fee);
+  }
+
+  hireManager(id: string, c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    const def = MANAGER_BY_ID.get(id);
+    if (!def || !this.managerOffers.includes(id)) return { ok: false, error: 'That manager is not available.', cost: 0 };
+    const fee = this.managerFee(id);
+    if (!c.canAfford(fee)) return { ok: false, error: 'Not enough cash for the signing fee.', cost: fee };
+    c.spend(this.year, 'salary', fee);
+    const old = c.manager;
+    c.manager = id;
+    this.managerOffers = this.managerOffers.filter((x) => x !== id);
+    if (old) this.managerOffers.push(old);
+    c.note(this.day, `Hired ${def.name} (${def.title.toLowerCase()})`);
+    return { ok: true, cost: fee };
+  }
+
+  fireManager(c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    if (!c.manager) return { ok: false, error: 'You have no manager.', cost: 0 };
+    this.managerOffers.push(c.manager);
+    c.manager = null;
+    return { ok: true, cost: 0 };
   }
 
   /** Save a train's engine, cars and route as a template. */

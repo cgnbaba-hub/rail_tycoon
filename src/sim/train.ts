@@ -7,6 +7,7 @@ import { findTrainPath, tileDistance } from './routing';
 import { stationEffects, type Station } from './station';
 import { NODE_BRIDGE, NODE_GROUND, NODE_TUNNEL, bitCount, canTurn, stepLength } from './track';
 import type { World } from './world';
+import type { Modifiers } from './modifiers';
 
 const PH = ECONOMY.physics;
 const DXS = [1, 1, 0, -1, -1, -1, 0, 1];
@@ -354,6 +355,10 @@ export interface TrainHost {
   year: number;
   settings: { wrecks: boolean };
   emit(e: TrainEvent): void;
+  /** Event + manager effects for a company. */
+  mods(owner: number): Modifiers;
+  /** The owner's manager's revenue bonus for a cargo (events are in the economy factor). */
+  managerBonus(owner: number, cargo: string): number;
 }
 
 export type TrainEvent =
@@ -756,7 +761,7 @@ export class TrainSystem {
     for (const t of this.trains) {
       if (t.state !== 'running' && t.state !== 'signal') continue;
       const e = engineDef(t);
-      const factor = consistBonus(t.cars).breakdown * this.serviceFx(t).breakdown;
+      const factor = consistBonus(t.cars).breakdown * this.serviceFx(t).breakdown * this.host.mods(t.owner).breakdowns;
       if (this.host.rng.next() >= breakdownChance(e, engineAgeYears(t, this.host.tick)) * factor) continue;
       const b = ECONOMY.breakdowns;
       const days = this.host.rng.int(b.repairDays[0], b.repairDays[1]);
@@ -779,7 +784,7 @@ export class TrainSystem {
       const e = engineDef(t);
       const age = engineAgeYears(t, this.host.tick);
       const base = (e.maintenance / 12) * (1 + ECONOMY.engineWear.maintenancePerYearOfAge * age);
-      this.charge(t, 'maintenance', base * this.serviceFx(t).maintenance);
+      this.charge(t, 'maintenance', base * this.serviceFx(t).maintenance * this.host.mods(t.owner).maintenance);
       t.stats.months.push(t.stats.monthNet);
       if (t.stats.months.length > 12) t.stats.months.shift();
       t.stats.monthNet = 0;
@@ -870,7 +875,7 @@ export class TrainSystem {
   private advance(t: Train, d: number, e: EngineDef, tons: number, overweight: boolean): void {
     // Fuel and wreck risk scale with distance.
     const fuel = d * 0.25 * (ECONOMY.fuelPrice[e.fuel] ?? 1) * (e.fuelBase + e.fuelPerTon * tons);
-    this.charge(t, 'fuel', fuel);
+    this.charge(t, 'fuel', fuel * this.host.mods(t.owner).fuel);
     if (this.host.settings.wrecks) {
       const w = ECONOMY.wrecks;
       const age = engineAgeYears(t, this.host.tick);
@@ -1015,7 +1020,7 @@ export class TrainSystem {
       const origin = this.world.stations[car.origin];
       const dist = origin ? tileDistance(this.world, stopTile(origin), stopTile(st)) : 0;
       const days = (this.host.tick - car.loadedTick) / TIME.ticksPerDay;
-      const q = econ.quote(st.id, car.cargo, car.loads, dist, days, { bonus: cargoBonus(bonus, car.cargo), graceBonus: stationEffects(origin).fresh });
+      const q = econ.quote(st.id, car.cargo, car.loads, dist, days, { bonus: cargoBonus(bonus, car.cargo) * this.host.managerBonus(t.owner, car.cargo), graceBonus: stationEffects(origin).fresh });
       const prev = quotes.get(car.cargo);
       if (prev) {
         // average the factors over the cars of this cargo

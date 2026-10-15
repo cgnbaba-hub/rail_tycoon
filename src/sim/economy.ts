@@ -9,6 +9,7 @@ import {
   type EconomicModel,
 } from '../data';
 import { EconomicCycle } from './cycle';
+import { cargoFactor, neutralMods, type Modifiers } from './modifiers';
 import type { Rng } from './rng';
 import { stationCoverage, stationEffects } from './station';
 import type { Industry, World } from './world';
@@ -272,6 +273,8 @@ export class Economy {
   /** Price index per cargo (Expert). */
   readonly priceLevel: Record<string, number> = {};
   readonly cycle: EconomicCycle;
+  /** Effects of current events (set by the game each month). */
+  mods: Modifiers = neutralMods();
   /** Bumped when supply-relevant data (industry levels, improvements, populations) changes. */
   private dataVersion = 0;
   private cache: { version: string; data: Map<number, StationEconomy> } | null = null;
@@ -326,7 +329,7 @@ export class Economy {
   /** Cycle revenue factor × price level (Expert). */
   economyFactor(cargo: string): number {
     const price = ECONOMY.models[this.model].priceLevels ? this.priceLevel[cargo] ?? 1 : 1;
-    return this.cycle.revenueFactor * price;
+    return this.cycle.revenueFactor * price * cargoFactor(this.mods.revenue, cargo);
   }
 
   /** Revenue for delivering at `stationId`, with all economy factors applied. */
@@ -359,7 +362,8 @@ export class Economy {
     for (const [id, se] of this.stations()) {
       const sc = this.cargoAt(id);
       const cap = ECONOMY.maxWaitingMonths * stationEffects(this.world.stations[id]).storage;
-      for (const [cargo, perMonth] of Object.entries(se.supply)) {
+      for (const [cargo, base] of Object.entries(se.supply)) {
+        const perMonth = base * cargoFactor(this.mods.supply, cargo);
         const inc = perMonth / DAYS_PER_MONTH;
         sc.waiting[cargo] = Math.min(perMonth * cap, (sc.waiting[cargo] ?? 0) + inc);
         add(sc.suppliedMonth, cargo, inc);

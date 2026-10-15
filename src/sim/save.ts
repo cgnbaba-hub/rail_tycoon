@@ -3,6 +3,7 @@ import { Chairman } from './chairman';
 import { Company } from './company';
 import { EconomicCycle } from './cycle';
 import { Economy } from './economy';
+import { EventSystem } from './events';
 import { Game } from './game';
 import { Rng } from './rng';
 import { Statistics } from './stats';
@@ -32,6 +33,7 @@ const CLASSES: Record<string, { prototype: object }> = {
   Chairman,
   AIBaron,
   Statistics,
+  EventSystem,
 };
 
 /** Fields never saved (re-created on load). */

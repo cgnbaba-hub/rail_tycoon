@@ -1,7 +1,8 @@
-import { CARGO, CARGO_BY_ID, CAR_BY_ID, ECONOMY, IMPROVEMENTS, IMPROVEMENT_BY_ID, INDUSTRY_BY_ID, MAPGEN } from '../data';
+import { CARGO, CARGO_BY_ID, CAR_BY_ID, ECONOMY, EVENTS, IMPROVEMENTS, IMPROVEMENT_BY_ID, INDUSTRY_BY_ID, MAPGEN } from '../data';
 import { PALETTE, type PaletteName } from '../render/palette';
 import { cycleState } from '../sim/cycle';
 import { daysToRecover } from '../sim/economy';
+import { describeMods } from '../sim/modifiers';
 import type { Game } from '../sim/game';
 import { townService } from '../sim/growth';
 import type { Station } from '../sim/station';
@@ -105,6 +106,18 @@ export function openEconomy(host: TrainUiHost): void {
   const ownedHtml = owned.length
     ? `<div class="section">Your industries</div>${owned.map((ind) => row(ind.name, `${fmtMoney(econ.industryMonthlyProfit(ind))}/mo`)).join('')}`
     : '';
+  const ev = game.events;
+  const months = (end: number) => Math.max(1, Math.round((end - game.day) / 30));
+  const eventRows = [
+    ...ev.active.map((a) => {
+      const d = EVENTS.events.find((e) => e.id === a.id);
+      return d ? `<li class="${d.tone > 0 ? 'good' : d.tone < 0 ? 'bad' : ''}"><b>${esc(d.name)}</b> <small>${months(a.endDay)} more month${months(a.endDay) === 1 ? '' : 's'}</small><br>${esc(describeMods(d.effects).join(', '))}</li>` : '';
+    }),
+    ...ev.adopted.map((id) => {
+      const d = EVENTS.events.find((e) => e.id === id);
+      return d ? `<li class="good"><b>${esc(d.name)}</b> <small>technology, permanent</small><br>${esc(describeMods(d.effects).join(', '))}</li>` : '';
+    }),
+  ].join('');
   const m = host.openModal(
     `<h2>Economic report</h2>
     <div class="econ-report">
@@ -119,6 +132,8 @@ export function openEconomy(host: TrainUiHost): void {
         ${ownedHtml}
       </div>
       <div>
+        <div class="section">Events in effect</div>
+        <ul class="news-list">${eventRows || '<li class="hint">Nothing out of the ordinary.</li>'}</ul>
         <div class="section">News</div>
         <ul class="news-list">${news || '<li class="hint">No news yet.</li>'}</ul>
         ${prices}

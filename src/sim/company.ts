@@ -121,6 +121,8 @@ export class Company {
   name: string;
   ticker: string;
   cash: number;
+  /** Hired manager (id from managers.json) or null. */
+  manager: string | null = null;
   /** Holder key of the chairman (the baron who runs it). */
   chairman: string;
   /** Company colour (palette name) for the map and charts. */

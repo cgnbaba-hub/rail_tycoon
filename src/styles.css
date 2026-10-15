@@ -1427,3 +1427,15 @@ svg.spark polyline {
 .stats-table {
   max-height: 55vh;
 }
+.mgr-card {
+  border: var(--px) solid var(--c-slate);
+  padding: 0.3em 0.5em;
+  margin-bottom: 0.4em;
+}
+.mgr-card p {
+  margin: 0.2em 0;
+}
+.mgr-card small {
+  color: var(--muted);
+  font-size: 1em;
+}
