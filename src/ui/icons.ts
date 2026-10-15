@@ -25,6 +25,7 @@ const ICONS: Record<string, string[]> = {
   chart: ['X........', 'X......X.', 'X.....XX.', 'X..X..XX.', 'X..XX.XX.', 'X.XXX.XX.', 'X.XXXXXX.', 'X.XXXXXX.', 'XXXXXXXXX'],
   disk: ['XXXXXXXX.', 'X.XXXX.X.', 'X.XXXX.XX', 'X.XXXX..X', 'X.......X', 'X.XXXXX.X', 'X.X...X.X', 'X.XXXXX.X', 'XXXXXXXXX'],
   gear: ['...X.X...', '.X.XXX.X.', '..XXXXX..', 'XXX...XXX', '.XX...XX.', 'XXX...XXX', '..XXXXX..', '.X.XXX.X.', '...X.X...'],
+  medal: ['XX.....XX', '.XX...XX.', '..XX.XX..', '...XXX...', '..XXXXX..', '.XXX.XXX.', '.XX...XX.', '.XXX.XXX.', '..XXXXX..'],
   center: ['....X....', '....X....', '..XXXXX..', '..X...X..', 'XXX.X.XXX', '..X...X..', '..XXXXX..', '....X....', '....X....'],
 };
 

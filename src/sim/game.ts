@@ -3,6 +3,7 @@ import { AIBaron } from './ai';
 import { Statistics } from './stats';
 import { EventSystem } from './events';
 import { Territories, type Region } from './territories';
+import { checkScenario, type Medal, type ScenarioState } from './scenario';
 import { cargoFactor, combineMods, type Modifiers } from './modifiers';
 import { boardVote, checkSolvency, type BoardVote } from './rivals';
 import { Chairman, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
@@ -76,6 +77,7 @@ export type GameEvent =
   | { type: 'rival'; company: number; text: string; tone: number }
   | { type: 'gameOver'; over: GameOver }
   | { type: 'event'; def: EventDef; started: boolean }
+  | { type: 'scenarioEnd'; medal: Medal }
   | TrainEvent;
 
 export interface GameOver {
@@ -189,6 +191,8 @@ export class Game {
   readonly undoStack: UndoEntry[] = [];
   /** Monthly history for the statistics screen. */
   readonly stats = new Statistics();
+  /** Running scenario (null in sandbox games). */
+  scenario: ScenarioState | null = null;
   /** Regions with goodwill and charters. */
   readonly territories: Territories;
   /** Historical events in effect. */
@@ -346,6 +350,8 @@ export class Game {
         for (const ai of this.ai) ai.monthly(this);
         this.stats.sample(this);
         this.goodwillMonthly();
+        const sc = checkScenario(this);
+        if (sc) this.emit({ type: 'scenarioEnd', medal: sc.medal });
         this.emit({ type: 'month', date });
         if (date.month === 0) {
           this.financeYearly();

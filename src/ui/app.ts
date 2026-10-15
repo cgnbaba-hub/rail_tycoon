@@ -25,6 +25,9 @@ import { openStats } from './stats';
 import { prefs, onPrefs, uiFontTarget } from './prefs';
 import { openSaves, writeSave } from './saves';
 import { openSettings } from './settings';
+import { goalChipHtml, openGoal, openScenarioEnd, openTitle } from './scenarios';
+import { Tutorial, hint } from './tutorial';
+import { scenarioDef } from '../sim/scenario';
 import type { Advice } from '../sim/advisor';
 import { describeMods } from '../sim/modifiers';
 
@@ -74,6 +77,9 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
   private breakdownTimer: number | null = null;
   private econDirty = true;
   private monthsSinceAutosave = 0;
+  private tutorial: Tutorial | null = null;
+  private lastTutorial = 0;
+  private lastGoalDay = -99;
   private lastStockKey = '';
 
   constructor() {
@@ -105,6 +111,13 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.closeModal();
     this.game = game;
     this.monthsSinceAutosave = 0;
+    this.lastStockKey = '';
+    this.lastCash = NaN;
+    this.lastDateText = '';
+    this.tutorial?.close();
+    const def = game.scenario ? scenarioDef(game.scenario.id) : undefined;
+    this.tutorial = def?.tutorial && !game.scenario?.finished ? new Tutorial() : null;
+    this.lastGoalDay = -99;
     this.selectedTrain = null;
     this.following = null;
     this.econDirty = true;
@@ -128,7 +141,15 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.pinned = null;
     this.hoverTile = null;
     this.stepper.reset();
-    this.setSpeed(1);
+    this.setSpeed(game.scenario ? 0 : 1);
+    this.refreshGoal();
+    if (game.companies.length > 1) {
+      setTimeout(() => {
+        if (this.game !== game || document.querySelector('.modal-backdrop')) return;
+        const h = hint('rivals');
+        if (h) this.toast(h, 'info');
+      }, 2500);
+    }
     $('#seed').textContent = `Seed ${params.seed}`;
     $('#company').textContent = this.game.company.name + (this.game.over ? ' — game over' : '');
     const url = new URL(window.location.href);
@@ -229,6 +250,30 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       this.pinned = null;
     }
     this.invalidatePanel();
+  }
+
+  private openFinanceWindow(): void {
+    this.tutorial?.note('finance');
+    openFinance(this);
+  }
+
+  private openAdvisorWindow(): void {
+    this.tutorial?.note('advisor');
+    openAdvisor(this);
+  }
+
+  /** Title screen (new game, scenarios, tutorial, continue). */
+  openTitle(): void {
+    this.setSpeed(0);
+    void openTitle(this);
+  }
+
+  /** Scenario goal chip in the top bar. */
+  private refreshGoal(): void {
+    const el = $('#goal');
+    const html = this.game.scenario ? goalChipHtml(this.game) : '';
+    el.hidden = !html;
+    if (el.innerHTML !== html) el.innerHTML = html;
   }
 
   private openOverlays(): void {
@@ -348,7 +393,15 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         this.toast(`Margin call! Your broker closed ${n.toLocaleString('en-US')} shares to cover your loan.`, 'error');
         break;
       }
-      case 'yearEnd':
+      case 'scenarioEnd':
+        this.setSpeed(0);
+        openScenarioEnd(this, e.medal);
+        this.refreshGoal();
+        break;
+      case 'yearEnd': {
+        const h = hint('yearEnd');
+        if (h) this.toast(h, 'info');
+      }
         if (yearEndEnabled()) {
           const resume = this.speed;
           this.setSpeed(0);
@@ -362,6 +415,10 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         this.toast(`${t?.name ?? 'A train'} has no route to its next stop.`, 'error');
         break;
       }
+    }
+    if (e.type === 'day' && this.game.scenario && g.day - this.lastGoalDay >= 7) {
+      this.lastGoalDay = g.day;
+      this.refreshGoal();
     }
     if (e.type === 'month') {
       this.econDirty = true;
@@ -377,6 +434,10 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
   }
 
   setTool(id: string): void {
+    if (id === 'station' || id === 'track') {
+      const h = hint(id);
+      if (h) this.toast(h, 'info');
+    }
     const next = id === 'inspect' ? null : this.tools[id] ?? null;
     if (next === this.tool) return;
     this.tool?.deactivate?.();
@@ -409,6 +470,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     });
     $('#econ').addEventListener('click', () => openEconomy(this));
     $('#stock').addEventListener('click', () => openFinance(this, 'stock'));
+    $('#goal').addEventListener('click', () => openGoal(this));
     $('#personal').addEventListener('click', () => openFinance(this, 'portfolio'));
     $('#btn-new').innerHTML = icon('newmap');
     $('#btn-new').setAttribute('aria-label', 'New map');
@@ -433,8 +495,8 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       { id: 'station', icon: 'station', tip: 'Build station — shows catchment', key: 'B', action: () => this.setTool('station'), pressed: () => this.tool?.id === 'station' },
       { id: 'bulldoze', icon: 'bulldoze', tip: 'Bulldoze track or stations', key: 'X', action: () => this.setTool('bulldoze'), pressed: () => this.tool?.id === 'bulldoze' },
       { id: 'trains', icon: 'train', tip: 'Trains — fleet list and new trains', key: 'F', action: () => openFleet(this) },
-      { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => openFinance(this) },
-      { id: 'advisor', icon: 'bell', tip: 'Advisor — advice, news log and delivery formulas', key: 'U', action: () => openAdvisor(this) },
+      { id: 'finance', icon: 'finance', tip: 'Finance — books, bonds, stock and your portfolio', key: 'M', action: () => this.openFinanceWindow() },
+      { id: 'advisor', icon: 'bell', tip: 'Advisor — advice, news log and delivery formulas', key: 'U', action: () => this.openAdvisorWindow() },
       { id: 'stats', icon: 'chart', tip: 'Statistics — revenue by cargo, trains, stations, rivals, net worth', key: 'K', action: () => openStats(this) },
       { id: 'overlays', icon: 'heat', tip: 'Map overlays — supply, demand, growth, profit, congestion, gradient', key: 'J', action: () => this.openOverlays(), pressed: () => overlay.kind !== null },
       { id: 'chains', icon: 'chain', tip: 'Supply chains on this map', key: 'Y', action: () => openSupplyChains(this, () => this.invalidatePanel()), pressed: () => overlay.chainCargo !== null },
@@ -533,6 +595,19 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       const el = $('#econ');
       el.innerHTML = economyChipHtml(this.game);
       el.dataset.tip = economyTip(this.game);
+    }
+    if (this.tutorial) {
+      const now = performance.now();
+      if (now - this.lastTutorial > 300) {
+        this.lastTutorial = now;
+        const tool = this.tutorial.update(this.game);
+        document.querySelectorAll('#rail .btn.pulse').forEach((b) => b.id !== `tool-${tool}` && b.classList.remove('pulse'));
+        if (tool) document.getElementById(`tool-${tool}`)?.classList.add('pulse');
+        if (this.tutorial.finished) {
+          this.tutorial = null;
+          this.refreshGoal();
+        }
+      }
     }
     for (const t of this.railButtons) {
       const el = document.getElementById(`tool-${t.id}`) as HTMLButtonElement | null;
@@ -879,7 +954,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
           this.centerOnFocus();
           break;
         case 'm':
-          openFinance(this);
+          this.openFinanceWindow();
           break;
         case 'o':
           openCompanies(this);
@@ -894,7 +969,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
           openSupplyChains(this, () => this.invalidatePanel());
           break;
         case 'u':
-          openAdvisor(this);
+          this.openAdvisorWindow();
           break;
         case 'k':
           openStats(this);

@@ -20,6 +20,7 @@ import advisorJson from './advisor.json';
 import eventsJson from './events.json';
 import managersJson from './managers.json';
 import territoriesJson from './territories.json';
+import scenariosJson from './scenarios.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -511,6 +512,20 @@ export interface TerritoriesData {
   names: string[];
 }
 export const TERRITORIES = territoriesJson as TerritoriesData;
+
+export type ScenarioMetric = 'bookValue' | 'netWorth' | 'bestYearRevenue' | 'cargoLoads' | 'rank';
+export interface ScenarioDef {
+  id: string;
+  name: string;
+  tutorial?: boolean;
+  brief: string;
+  map: { seed: number; size: number; water: 'none' | 'low' | 'normal' | 'high'; hills: 'flat' | 'normal' | 'mountainous'; forests: 'few' | 'normal' | 'many'; cities: 'few' | 'normal' | 'many'; startYear: number };
+  settings: { rivals?: number; aiLevel?: AiLevel; friendlyAi?: boolean; model?: EconomicModel; charters?: boolean; wrecks?: boolean };
+  years: number;
+  goal: { metric: ScenarioMetric; label: string; tiers: [number, number, number]; cargos?: string[]; goldNetWorth?: number };
+  requires: Array<{ type: 'connect'; a: number; b: number }>;
+}
+export const SCENARIOS: ScenarioDef[] = (scenariosJson as unknown as { scenarios: ScenarioDef[] }).scenarios;
 export const MANAGER_BY_ID: ReadonlyMap<string, ManagerDef> = new Map(MANAGERS.managers.map((m) => [m.id, m]));
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 

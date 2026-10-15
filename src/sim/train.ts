@@ -1037,6 +1037,8 @@ export class TrainSystem {
       t.stats.revenue += q.total;
       t.stats.monthNet += q.total;
       t.stats.deliveries += car.loads;
+      const co = this.host.companyOf(t.owner);
+      co.delivered.set(car.cargo, (co.delivered.get(car.cargo) ?? 0) + car.loads);
       n += car.loads;
       car.loads = 0;
       car.origin = -1;

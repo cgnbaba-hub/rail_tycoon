@@ -169,6 +169,8 @@ export class Company {
   profitTrend = 0;
   /** Net profit per month, newest last (up to 24). */
   readonly monthlyNet: number[] = [];
+  /** Loads delivered per cargo since founding. */
+  readonly delivered = new Map<string, number>();
   /** Revenue by cargo since the statistics last sampled it (see stats.ts). */
   readonly sampleRevenue = new Map<string, number>();
 

@@ -1439,3 +1439,147 @@ svg.spark polyline {
   color: var(--muted);
   font-size: 1em;
 }
+
+/* --- M8: title, scenarios, medals, tutorial ---------------------------------------- */
+.modal.title {
+  width: 26em;
+  text-align: center;
+}
+.title-screen h1 {
+  margin: 0.2em 0 0.1em;
+  color: var(--c-gold);
+  font-size: 2.4em;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0.1em 0 var(--c-oxblood);
+}
+.title-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  margin-top: 0.8em;
+}
+.title-buttons .btn {
+  justify-content: space-between;
+}
+.title-buttons small {
+  color: var(--muted);
+  font-size: 1em;
+}
+.title-buttons .btn.primary small {
+  color: var(--c-ink);
+}
+.scn-list {
+  max-height: 65vh;
+}
+.scn-card {
+  border: var(--px) solid var(--c-slate);
+  padding: 0.3em 0.6em;
+  margin-bottom: 0.5em;
+}
+.scn-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.scn-head .grow {
+  flex: 1;
+}
+.scn-card small {
+  color: var(--muted);
+  font-size: 1em;
+}
+.scn-card p {
+  margin: 0.2em 0;
+}
+.medal {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.medal.gold {
+  color: var(--c-gold);
+}
+.medal.silver {
+  color: var(--c-fog);
+}
+.medal.bronze {
+  color: var(--c-ember);
+}
+.medal.none {
+  color: var(--c-slate);
+}
+.medal.big svg {
+  width: 4em;
+  height: 4em;
+}
+.scn-end {
+  text-align: center;
+}
+.goal-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.2em 0;
+}
+.goal-list li.good {
+  color: var(--c-meadow);
+}
+.goal-list li.bad {
+  color: var(--c-tile);
+}
+.btn.goal {
+  gap: 0.3em;
+}
+.btn.goal small {
+  color: var(--muted);
+  font-size: 1em;
+}
+#tutorial {
+  position: fixed;
+  left: 50%;
+  top: 2.8em;
+  transform: translateX(-50%);
+  width: min(34em, 92vw);
+  z-index: 20;
+  padding: 0.4em 0.7em;
+  background: var(--panel-bg);
+  border: var(--px) solid var(--c-gold);
+  box-shadow: 0 0.15em 0 var(--c-ink);
+}
+#tutorial p {
+  margin: 0.3em 0;
+}
+#tutorial .tut-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  color: var(--c-gold);
+}
+#tutorial .tut-head small {
+  color: var(--muted);
+  font-size: 1em;
+}
+#tutorial .grow {
+  flex: 1;
+}
+#rail .btn.pulse {
+  outline: var(--px) solid var(--c-gold);
+  animation: pulse 1s steps(2) infinite;
+}
+@keyframes pulse {
+  50% {
+    background: var(--c-oxblood);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #rail .btn.pulse {
+    animation: none;
+  }
+}
+
+@media (max-width: 1800px) {
+  #topbar:has(#goal:not([hidden])) .brand {
+    display: none;
+  }
+  #topbar:has(#goal:not([hidden])) .money .label {
+    display: none;
+  }
+}
