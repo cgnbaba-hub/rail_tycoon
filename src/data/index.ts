@@ -19,6 +19,7 @@ import aiJson from './ai.json';
 import advisorJson from './advisor.json';
 import eventsJson from './events.json';
 import managersJson from './managers.json';
+import territoriesJson from './territories.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -489,6 +490,27 @@ export interface ManagerDef {
   effects: ModifierSpec;
 }
 export const MANAGERS = managersJson as unknown as { fee: number; offered: number; managers: ManagerDef[] };
+export interface TerritoriesData {
+  tilesPerRegion: number;
+  minRegions: number;
+  maxRegions: number;
+  restrictedShare: number;
+  start: number;
+  charterGoodwill: number;
+  charterFee: number;
+  costAt0: number;
+  costAt100: number;
+  perServedStation: number;
+  perRevenue: number;
+  revenueCap: number;
+  idleStation: number;
+  drift: number;
+  perDemolished: number;
+  bulldozedStation: number;
+  wreck: number;
+  names: string[];
+}
+export const TERRITORIES = territoriesJson as TerritoriesData;
 export const MANAGER_BY_ID: ReadonlyMap<string, ManagerDef> = new Map(MANAGERS.managers.map((m) => [m.id, m]));
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 

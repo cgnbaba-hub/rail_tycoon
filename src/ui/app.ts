@@ -17,7 +17,7 @@ import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvemen
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
-import { AI, type AiLevel, type EconomicModel } from '../data';
+import { AI, TERRITORIES, type AiLevel, type EconomicModel } from '../data';
 import { companyTag, openCompanies, openGameOver } from './rivals';
 import { adviceCount, logDelivery, logEvent, openAdvisor, refreshAdvice, resetFeed, type AdvisorHost } from './advisor';
 import { clearChain, openOverlayPicker, openSupplyChains, overlay, refreshOverlay, setOverlay } from './overlays';
@@ -176,7 +176,8 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.renderer.selectedTrain = this.selectedTrain ?? -1;
     this.tool?.update?.();
     const ov = this.tool ? this.tool.overlay() : this.inspectOverlay;
-    this.renderer.overlay = overlay.chain.length ? { ...ov, highlights: [...overlay.chain, ...ov.highlights] } : ov;
+    this.renderer.overlay =
+      overlay.chain.length || overlay.lines.length ? { ...ov, highlights: [...overlay.chain, ...ov.highlights], lines: overlay.lines, labels: overlay.labels } : ov;
     this.renderer.heat = overlay.heat;
     const time = this.game.tick + this.stepper.alpha;
     this.renderer.render(this.camera, time);
@@ -625,6 +626,13 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     const st = insp.stationId !== undefined ? this.game.world.stations[insp.stationId] : null;
     if (st) bindImprovements(el, this, st);
     bindIndustry(el, this);
+    el.querySelector<HTMLElement>('[data-charter]')?.addEventListener('click', (ev) => {
+      const id = Number((ev.currentTarget as HTMLElement).dataset.charter);
+      const r = this.game.buyCharter(id);
+      this.toast(r.ok ? `Charter bought for ${this.game.territories.regions[id].name} (${fmtMoney(r.cost)})` : r.error ?? 'Cannot buy.', r.ok ? 'money' : 'error');
+      if (overlay.kind) refreshOverlay(this.game);
+      this.invalidatePanel();
+    });
     document.getElementById('unpin')?.addEventListener('click', () => (this.pinned = null));
     el.querySelector<HTMLElement>('[data-act="newtrain"]')?.addEventListener('click', (ev) => {
       const sid = Number((ev.currentTarget as HTMLElement).dataset.station);
@@ -640,12 +648,32 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     const tile = this.pinned ?? this.hoverTile;
     const node = tile && (insp.kind === 'track' || insp.kind === 'station') ? g.world.track.get(tile[0], tile[1]) : undefined;
     const owner = node ? g.companyById(node.owner) : undefined;
-    const ownerRow = owner ? `<div class="kv"><span>Owner</span><b>${companyTag(owner)}</b></div>` : '';
+    const ownerRow = (owner ? `<div class="kv"><span>Owner</span><b>${companyTag(owner)}</b></div>` : '') + (tile ? this.regionHtml(g.world.tileIndex(tile[0], tile[1])) : '');
     if (st) return ownerRow + stationEconomyHtml(g, st) + stationDemandHtml(g, st) + (st.owner === g.company.id ? improvementsHtml(g, st) : '');
     if (ownerRow) return ownerRow;
     if (insp.industryId !== undefined) return industryEconomyHtml(g, g.world.industries[insp.industryId]);
-    if (insp.cityId !== undefined) return townGrowthHtml(g, g.world.cities[insp.cityId]);
-    return '';
+    if (insp.cityId !== undefined) return ownerRow + townGrowthHtml(g, g.world.cities[insp.cityId]);
+    return ownerRow;
+  }
+
+  /** Region, goodwill and charter status of a tile (inspector). */
+  private regionHtml(tile: number): string {
+    const g = this.game;
+    const r = g.territories.regionAt(tile);
+    const fee = g.territories.charterFee(g.year);
+    const status = !r.restricted
+      ? 'open'
+      : r.chartered
+        ? 'chartered'
+        : `<span class="bad">needs a charter</span>`;
+    const buy =
+      r.restricted && !r.chartered && !g.over
+        ? `<div class="actions"><button class="btn small" data-charter="${r.id}" data-tip="Or win goodwill ${TERRITORIES.charterGoodwill} here (now ${Math.round(r.goodwill)})">Buy charter · ${fmtMoney(fee)}</button></div>`
+        : '';
+    const cost = g.territories.costFactor(r);
+    return `<div class="section">${esc(r.name)}</div>
+      <div class="kv" data-tip="Goodwill 0–100 grows with stations your trains serve and the revenue they earn; it falls when you demolish buildings, tear down stations or wreck trains. Construction here costs ×${cost.toFixed(2)}."><span>Goodwill</span><b>${Math.round(r.goodwill)} / 100</b></div>
+      <div class="kv"><span>Building</span><b>${status}</b></div>${buy}`;
   }
 
   private newsTimer: number | null = null;
@@ -954,6 +982,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         <div class="row"><label>Rivals</label>${sel('rivals', ['0', '1', '2', '3'], String(this.game?.settings.rivals ?? 2))}</div>
         <div class="row"><label>Rival skill</label>${sel('aiLevel', Object.keys(AI.levels), this.game?.settings.aiLevel ?? 'normal')}</div>
         <div class="row"><label>Rival attitude</label>${sel('friendly', ['ruthless', 'friendly'], this.game?.settings.friendlyAi ? 'friendly' : 'ruthless')}</div>
+        <div class="row"><label>Territories</label>${sel('charters', ['charters', 'open'], this.game && !this.game.settings.charters ? 'open' : 'charters')}</div>
         <div class="row"><label>Wrecks</label>${sel('wrecks', ['on', 'off'], this.game ? (this.game.settings.wrecks ? 'on' : 'off') : ECONOMY.wrecks.enabledByDefault ? 'on' : 'off')}</div>
         <div class="row"><label for="ng-year">Start year</label>
           <input id="ng-year" name="startYear" type="number" min="${MAPGEN.startYears[0]}" max="${MAPGEN.startYears[1]}" step="1" value="${p.startYear}" /></div>
@@ -986,6 +1015,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         rivals: Number(fd.get('rivals')),
         aiLevel: fd.get('aiLevel') as AiLevel,
         friendlyAi: fd.get('friendly') === 'friendly',
+        charters: fd.get('charters') !== 'open',
       };
       this.closeModal();
       withLoading('Surveying the land…', () => this.newGame(params, settings));

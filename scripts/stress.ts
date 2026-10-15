@@ -5,7 +5,7 @@
 import { defaultTrackOptions } from '../src/sim/construction';
 import { Game } from '../src/sim/game';
 import { defaultMapParams } from '../src/sim/mapgen';
-const g = new Game({ ...defaultMapParams(5), size: 256 }, undefined, { wrecks: false });
+const g = new Game({ ...defaultMapParams(5), size: 256 }, undefined, { wrecks: false, charters: false });
 g.company.cash = 1e10;
 const towns = [...g.world.cities].sort((a, b) => b.population - a.population).slice(0, 12);
 const st = [];

@@ -21,6 +21,7 @@ const OUT = process.argv[2] || 'screenshots';
     const app = window.ironBaron;
     const g = app.game;
     app.setSpeed(0);
+    for (const r of g.territories.regions) r.chartered = true;
     for (let i = 0; i < 6; i++) g.issueBond();
     const towns = [...g.world.cities].sort((a, b) => b.population - a.population).slice(0, 4);
     const st = [];

@@ -1,6 +1,6 @@
 import { CARGO, CARGO_BY_ID, ECONOMY, INDUSTRIES, INDUSTRY_BY_ID } from '../data';
 import { PALETTE } from '../render/palette';
-import type { HeatMap, Highlight } from '../render/renderer';
+import type { HeatMap, Highlight, Overlay } from '../render/renderer';
 import type { Game } from '../sim/game';
 import { OVERLAY_KINDS, computeOverlay, type OverlayField, type OverlayKind } from '../sim/overlays';
 import { $, esc } from './dom';
@@ -12,6 +12,9 @@ const SEQ = { colors: [PALETTE.foam, PALETTE.sky, PALETTE.gold, PALETTE.ember, P
 const DIV = { colors: [PALETTE.tile, PALETTE.ember, PALETTE.fog, PALETTE.shallow, PALETTE.sky], density: [0.75, 0.5, 0.25, 0.5, 0.75] };
 
 export interface OverlayState {
+  /** Region borders and names (territories overlay). */
+  lines: NonNullable<Overlay['lines']>;
+  labels: NonNullable<Overlay['labels']>;
   kind: OverlayKind | null;
   cargo: string;
   field: OverlayField | null;
@@ -21,7 +24,7 @@ export interface OverlayState {
   chainCargo: string | null;
 }
 
-export const overlay: OverlayState = { kind: null, cargo: 'passengers', field: null, heat: null, chain: [], chainCargo: null };
+export const overlay: OverlayState = { lines: [], labels: [], kind: null, cargo: 'passengers', field: null, heat: null, chain: [], chainCargo: null };
 
 function fmtValue(f: OverlayField, v: number): string {
   if (f.unit === '$/yr') return fmtMoney(Math.round(v));
@@ -32,6 +35,7 @@ function fmtValue(f: OverlayField, v: number): string {
 
 /** Bucket thresholds for a field. */
 function thresholds(f: OverlayField): number[] {
+  if (f.kind === 'territories') return [-25, -8, 8, 25];
   if (f.kind === 'gradient') return [1, 2, 3.5, 5];
   if (f.kind === 'catchment') return [2, 3, 4, 5];
   if (f.diverging) {
@@ -45,11 +49,16 @@ function thresholds(f: OverlayField): number[] {
 /** (Re)compute the active overlay from the game state. */
 export function refreshOverlay(game: Game): void {
   if (!overlay.kind) {
+    overlay.lines = [];
+    overlay.labels = [];
     overlay.field = null;
     overlay.heat = null;
     renderLegend();
     return;
   }
+  overlay.lines = [];
+  overlay.labels = [];
+  if (overlay.kind === 'territories') territoryShapes(game);
   const f = computeOverlay(game, overlay.kind, overlay.cargo);
   const ramp = f.diverging ? DIV : SEQ;
   overlay.field = f;
@@ -310,3 +319,23 @@ export function clearChain(): void {
   overlay.chainCargo = null;
 }
 
+/** Borders between regions (dashed red where a charter is needed) and region names. */
+function territoryShapes(game: Game): void {
+  const T = game.territories;
+  const W = game.world.width;
+  const H = game.world.height;
+  const closed = (id: number) => !game.canBuildIn(T.regions[id]);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const r = T.map[y * W + x];
+      const edge = (o: number, a: [number, number], b: [number, number]) => {
+        if (o === r) return;
+        const restricted = closed(r) || closed(o);
+        overlay.lines.push({ a, b, color: restricted ? PALETTE.tile : PALETTE.bone, dashed: restricted });
+      };
+      if (x + 1 < W) edge(T.map[y * W + x + 1], [x + 1, y], [x + 1, y + 1]);
+      if (y + 1 < H) edge(T.map[(y + 1) * W + x], [x, y + 1], [x + 1, y + 1]);
+    }
+  }
+  for (const r of T.regions) overlay.labels.push({ x: r.x, y: r.y, text: `${r.name} · ${Math.round(r.goodwill)}${closed(r.id) ? ' · charter' : ''}` });
+}

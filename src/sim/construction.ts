@@ -104,6 +104,8 @@ export interface TrackOptions {
   year: number;
   /** Company building the track (0 = the player); other companies' track is off limits. */
   owner?: number;
+  /** Tiles this company may not build on (1 = forbidden, e.g. a territory without charter). */
+  forbidden?: Uint8Array;
 }
 
 export function defaultTrackOptions(year: number, owner = 0): TrackOptions {
@@ -118,6 +120,7 @@ function groundNodeCost(world: World, i: number, opts: TrackOptions, into?: Cost
   if (i < 0) return null;
   const node = world.track.getIdx(i);
   if (node) return node.kind === NODE_GROUND && node.owner === (opts.owner ?? 0) ? 0 : null;
+  if (opts.forbidden?.[i]) return null;
   if (world.terrain[i] === T.Water) return null;
   if (world.flags[i] & F.River) return null;
   const occ = world.occupant[i];
@@ -296,6 +299,7 @@ function spanOptions(world: World, t: number, d: number, zt: number, opts: Track
     let cur = t;
     for (let k = 1; k <= maxBridge; k++) {
       cur = track.neighbor(cur, d);
+      if (cur >= 0 && opts.forbidden?.[cur]) break;
       if (cur < 0 || track.getIdx(cur) || world.occupant[cur] !== 0) break;
       if (isDiagonal(d) && crossesSpan(world, cur, d)) break;
       interior.push(cur);
@@ -333,6 +337,7 @@ function spanOptions(world: World, t: number, d: number, zt: number, opts: Track
     const interior: number[] = [];
     for (let k = 1; k <= C.tunnel.maxLength; k++) {
       cur = track.neighbor(cur, d);
+      if (cur >= 0 && opts.forbidden?.[cur]) break;
       if (cur < 0 || track.getIdx(cur)) break;
       if (world.terrain[cur] === T.Water || world.flags[cur] & F.River) break;
       interior.push(cur);

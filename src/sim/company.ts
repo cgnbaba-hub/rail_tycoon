@@ -14,6 +14,7 @@ export type ExpenseCategory =
   | 'trackMaintenance'
   | 'improvementUpkeep'
   | 'salary'
+  | 'charters'
   | 'improvements'
   | 'industries'
   | 'refunds'
@@ -34,7 +35,8 @@ export const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   repairs: 'Breakdown repairs',
   trackMaintenance: 'Track & station upkeep',
   improvementUpkeep: 'Improvement upkeep',
-  salary: "Chairman's salary",
+  salary: 'Salaries (chairman & manager)',
+  charters: 'Charters',
   improvements: 'Station improvements',
   industries: 'Industry purchases',
   refunds: 'Undo refunds',

@@ -11,7 +11,7 @@ import { OCC_BUILDING, occupantIndex, occupantKind } from './world';
  * Everything is derived from the current game state; the UI recomputes it monthly.
  */
 
-export type OverlayKind = 'supply' | 'demand' | 'growth' | 'catchment' | 'profit' | 'traffic' | 'congestion' | 'gradient';
+export type OverlayKind = 'supply' | 'demand' | 'growth' | 'catchment' | 'profit' | 'traffic' | 'congestion' | 'gradient' | 'territories';
 
 export const OVERLAY_KINDS: Array<{ id: OverlayKind; name: string; cargo: boolean; desc: string }> = [
   { id: 'supply', name: 'Supply', cargo: true, desc: 'Loads per month a station here would collect (station-size catchment).' },
@@ -22,6 +22,7 @@ export const OVERLAY_KINDS: Array<{ id: OverlayKind; name: string; cargo: boolea
   { id: 'traffic', name: 'Traffic', cargo: false, desc: 'Trains passing per month.' },
   { id: 'congestion', name: 'Congestion', cargo: false, desc: 'Days per month trains spend waiting for the line ahead (and broken down).' },
   { id: 'gradient', name: 'Gradient', cargo: false, desc: 'Track grade, or land slope where there is no track.' },
+  { id: 'territories', name: 'Territories', cargo: false, desc: 'Goodwill toward your railroad in each region (relative to the neutral 50). Dashed red borders: a charter is needed to build there.' },
 ];
 
 export interface OverlayField {
@@ -91,6 +92,16 @@ export function computeOverlay(game: Game, kind: OverlayKind, cargo = 'passenger
         } else if (kind === 'traffic') {
           if (T.traffic[i] > 0.05) values[i] = T.traffic[i] * perMonth;
         } else if (T.waits[i] > TIME.ticksPerDay * 0.05) values[i] = (T.waits[i] * perMonth) / TIME.ticksPerDay;
+      }
+      break;
+    }
+    case 'territories': {
+      diverging = true;
+      unit = 'goodwill − 50';
+      const T = game.territories;
+      for (let i = 0; i < n; i++) {
+        const v = T.regions[T.map[i]].goodwill - 50;
+        if (Math.abs(v) >= 1) values[i] = v;
       }
       break;
     }

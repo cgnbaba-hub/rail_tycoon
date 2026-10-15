@@ -48,6 +48,10 @@ export interface Overlay {
   /** Dim the plan (e.g. unaffordable or still searching). */
   planDim?: boolean;
   highlights: Highlight[];
+  /** Line segments between tile corners (e.g. region borders). */
+  lines?: Array<{ a: [number, number]; b: [number, number]; color: string; dashed?: boolean }>;
+  /** Text placed on the map (e.g. region names). */
+  labels?: Array<{ x: number; y: number; text: string }>;
 }
 
 interface Puff {
@@ -172,6 +176,12 @@ export class Renderer {
     this.drawChunks(camera);
     if (this.heat) this.drawHeat(camera, this.heat);
     for (const h of this.overlay.highlights) this.drawHighlight(camera, h);
+    for (const l of this.overlay.lines ?? []) {
+      const [ax, ay] = camera.worldToScreen(l.a[0], l.a[1], this.world.vh(l.a[0], l.a[1]));
+      const [bx, by] = camera.worldToScreen(l.b[0], l.b[1], this.world.vh(l.b[0], l.b[1]));
+      if (Math.max(ax, bx) < -2 || Math.min(ax, bx) > this.canvas.width + 2 || Math.max(ay, by) < -2 || Math.min(ay, by) > this.canvas.height + 2) continue;
+      this.pixelLine(ax, ay - 1, bx, by - 1, l.color, l.dashed);
+    }
     if (this.selection) this.drawHighlight(camera, this.selection);
     if (this.hover) this.drawHighlight(camera, this.hover);
     if (this.overlay.plan?.ok) this.drawPlan(camera, this.overlay.plan, !!this.overlay.planDim);
@@ -179,6 +189,10 @@ export class Renderer {
     if (!this.reducedMotion) {
       this.drawSmoke(camera, time);
       this.drawPuffs(camera, time);
+    }
+    for (const l of this.overlay.labels ?? []) {
+      const [sx, sy] = camera.worldToScreen(l.x + 0.5, l.y + 0.5, this.world.vh(l.x, l.y));
+      this.label(sx, sy, l.text, PALETTE.cream, PALETTE.night, PALETTE.wheat);
     }
     if (this.showLabels) {
       this.drawCityLabels(camera);

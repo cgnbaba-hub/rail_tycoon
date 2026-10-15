@@ -4,6 +4,7 @@ import { Company } from './company';
 import { EconomicCycle } from './cycle';
 import { Economy } from './economy';
 import { EventSystem } from './events';
+import { Territories } from './territories';
 import { Game } from './game';
 import { Rng } from './rng';
 import { Statistics } from './stats';
@@ -34,6 +35,7 @@ const CLASSES: Record<string, { prototype: object }> = {
   AIBaron,
   Statistics,
   EventSystem,
+  Territories,
 };
 
 /** Fields never saved (re-created on load). */

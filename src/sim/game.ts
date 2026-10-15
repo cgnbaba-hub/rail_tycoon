@@ -1,7 +1,8 @@
-import { AI, MANAGERS, MANAGER_BY_ID, type EventDef, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
+import { AI, MANAGERS, MANAGER_BY_ID, TERRITORIES, type EventDef, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
 import { AIBaron } from './ai';
 import { Statistics } from './stats';
 import { EventSystem } from './events';
+import { Territories, type Region } from './territories';
 import { cargoFactor, combineMods, type Modifiers } from './modifiers';
 import { boardVote, checkSolvency, type BoardVote } from './rivals';
 import { Chairman, account, buyShares, chargeMarginInterest, coverShort, enforceMargin, maxBuy, sellShares, shortShares, type MarginCall, type TradeResult } from './chairman';
@@ -130,6 +131,8 @@ export interface GameSettings {
   aiLevel: AiLevel;
   /** Friendly rivals never short, raid or vote against you. */
   friendlyAi: boolean;
+  /** Some territories need a charter (default on for generated maps, off for hand-made worlds). */
+  charters: boolean;
 }
 
 /** Map a cost breakdown onto ledger categories. */
@@ -186,6 +189,8 @@ export class Game {
   readonly undoStack: UndoEntry[] = [];
   /** Monthly history for the statistics screen. */
   readonly stats = new Statistics();
+  /** Regions with goodwill and charters. */
+  readonly territories: Territories;
   /** Historical events in effect. */
   readonly events: EventSystem;
   /** Managers you can hire right now (ids; refreshed every January). */
@@ -206,7 +211,7 @@ export class Game {
     const S = FINANCE.shares;
     const fortune = S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice;
     this.investors = [new Chairman('You', fortune)];
-    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, ...settings };
+    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, charters: !world, ...settings };
     const rivals = Math.max(0, Math.min(AI.barons.length, this.settings.rivals));
     for (let k = 0; k < rivals; k++) {
       const b = AI.barons[k];
@@ -221,6 +226,8 @@ export class Game {
     this.growthRng = this.rng.fork(12);
     this.marketRng = this.rng.fork(13);
     this.events = new EventSystem(this.rng.fork(14));
+    this.territories = new Territories(this.world, this.rng.fork(16));
+    if (!this.settings.charters) for (const r of this.territories.regions) r.restricted = false;
     this.managerRng = this.rng.fork(15);
     this.refreshManagerOffers();
     for (const inv of this.investors) inv.yearStartWorth = this.netWorth(inv);
@@ -243,7 +250,10 @@ export class Game {
       get year() {
         return game.year;
       },
-      emit: (e) => this.emit(e),
+      emit: (e) => {
+        if (e.type === 'wreck' && this.trains.byId(e.train)?.owner === 0) this.goodwillHit(this.world.tileIndex(Math.floor(e.x), Math.floor(e.y)), -TERRITORIES.wreck);
+        this.emit(e);
+      },
       mods: (owner: number) => {
         const c = this.companyById(owner);
         return c ? this.modsFor(c) : this.events.mods;
@@ -335,6 +345,7 @@ export class Game {
         this.chargeTrackMaintenance();
         for (const ai of this.ai) ai.monthly(this);
         this.stats.sample(this);
+        this.goodwillMonthly();
         this.emit({ type: 'month', date });
         if (date.month === 0) {
           this.financeYearly();
@@ -408,11 +419,82 @@ export class Game {
   // -------------------------------------------------------------------------------------
 
   planTrack(from: number, to: number, opts: TrackOptions, c: Company = this.company): TrackPlan {
-    return scaleCost(planTrack(this.world, from, to, { ...opts, owner: c.id }), this.modsFor(c).construction);
+    const forbidden = this.territories.forbiddenFor(c.id);
+    const plan = planTrack(this.world, from, to, { ...opts, owner: c.id, forbidden });
+    if (!plan.ok) {
+      const closed = [from, to].map((t) => this.territories.regionAt(t)).find((r) => !this.canBuildIn(r, c));
+      if (closed) return { ...plan, error: this.charterError(closed, c) };
+      return plan;
+    }
+    const tiles = plan.steps.map((st) => st.to);
+    const goodwill = c.id === 0 && tiles.length ? tiles.reduce((a, t) => a + this.territories.costFactor(this.territories.regionAt(t)), 0) / tiles.length : 1;
+    return scaleCost(plan, this.modsFor(c).construction * goodwill);
+  }
+
+  /** May company c build in region r? (Rivals stay out of restricted regions.) */
+  canBuildIn(r: Region, c: Company = this.company): boolean {
+    return !r.restricted || (c.id === 0 && r.chartered);
+  }
+
+  private charterError(r: Region, c: Company): string {
+    if (c.id !== 0) return `${r.name} is closed to ${c.name}.`;
+    return `Building in ${r.name} needs a charter: goodwill ${TERRITORIES.charterGoodwill} (now ${Math.round(r.goodwill)}) or ${fmt(this.territories.charterFee(this.year))} — inspect a tile there to buy one.`;
+  }
+
+  /** Buy the charter for a restricted region. */
+  buyCharter(regionId: number, c: Company = this.company): CommandResult {
+    const no = this.refuse(c);
+    if (no) return { ok: false, error: no, cost: 0 };
+    const r = this.territories.regions[regionId];
+    if (!r || !r.restricted) return { ok: false, error: 'No charter needed there.', cost: 0 };
+    if (r.chartered) return { ok: false, error: 'You already hold that charter.', cost: 0 };
+    const fee = this.territories.charterFee(this.year);
+    if (!c.canAfford(fee)) return { ok: false, error: 'Not enough cash.', cost: fee };
+    c.spend(this.year, 'charters', fee);
+    r.chartered = true;
+    c.note(this.day, `Bought the charter for ${r.name}`);
+    return { ok: true, cost: fee };
+  }
+
+  /** Goodwill bookkeeping at month end (player only). */
+  private goodwillMonthly(): void {
+    const T = TERRITORIES;
+    const me = this.company;
+    if (me.defunct) return;
+    const sample = this.stats.samples[this.stats.samples.length - 1];
+    const served = new Set(this.trains.trains.filter((t) => t.owner === me.id).flatMap((t) => t.route.map((r) => r.station)));
+    const gain = new Map<number, number>();
+    const revenue = new Map<number, number>();
+    for (const st of this.world.liveStations()) {
+      if (st.owner !== me.id) continue;
+      const r = this.territories.regionAt(st.tiles[0]).id;
+      gain.set(r, (gain.get(r) ?? 0) + (served.has(st.id) ? T.perServedStation : -T.idleStation));
+      revenue.set(r, (revenue.get(r) ?? 0) + (sample?.stations[st.id] ?? 0));
+    }
+    const mult = this.modsFor(me).goodwill;
+    for (const r of this.territories.regions) {
+      const g = (gain.get(r.id) ?? 0) + Math.min(T.revenueCap, (revenue.get(r.id) ?? 0) / T.perRevenue);
+      this.territories.change(r, g > 0 ? g * mult : g);
+      this.territories.change(r, (T.start - r.goodwill) * T.drift);
+      if (r.restricted && !r.chartered && r.goodwill >= T.charterGoodwill) {
+        r.chartered = true;
+        this.emit({ type: 'finance', company: me.id, text: `${r.name} grants ${me.name} a charter: its people like your railroad.`, tone: 1 });
+      }
+    }
+  }
+
+  /** One-off goodwill change in the region of a tile. */
+  private goodwillHit(tile: number, delta: number): void {
+    if (tile < 0) return;
+    this.territories.change(this.territories.regionAt(tile), delta);
   }
 
   planStation(x: number, y: number, kind: Station['kind'], axis: 'x' | 'y', c: Company = this.company): StationPlan {
-    return scaleCost(planStation(this.world, x, y, kind, axis, c.id), this.modsFor(c).construction);
+    const plan = planStation(this.world, x, y, kind, axis, c.id);
+    const closed = plan.tiles.map((t) => this.territories.regionAt(t)).find((r) => !this.canBuildIn(r, c));
+    if (closed && plan.ok) return { ...plan, ok: false, error: this.charterError(closed, c) };
+    const goodwill = c.id === 0 && plan.tiles.length ? this.territories.costFactor(this.territories.regionAt(plan.tiles[0])) : 1;
+    return scaleCost(plan, this.modsFor(c).construction * goodwill);
   }
 
   /** Why company c can't act right now (game over for the player, or a defunct company). */
@@ -451,6 +533,7 @@ export class Game {
     if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost, plan };
     const tx = new Transaction(this.world);
     applyTrackPlan(this.world, plan, o, tx);
+    if (c.id === 0) for (const t of plan.demolished) this.goodwillHit(t, -TERRITORIES.perDemolished);
     const tiles = Math.round(plan.lengthTiles);
     this.commit(`Track (${tiles} tile${tiles === 1 ? '' : 's'})`, tx, ledgerSplit(plan.breakdown), c);
     return { ok: true, cost: plan.cost, plan };
@@ -482,6 +565,7 @@ export class Game {
     if (!c.canAfford(plan.cost)) return { ok: false, error: 'Not enough cash.', cost: plan.cost };
     const value = this.replacementValue(plan.tiles, plan.stations);
     const tx = new Transaction(this.world);
+    if (c.id === 0) for (const id of plan.stations) this.goodwillHit(this.world.stations[id]?.tiles[0] ?? -1, -TERRITORIES.bulldozedStation);
     applyBulldoze(this.world, plan, tx);
     const what = plan.stations.length ? `${plan.stations.length} station${plan.stations.length > 1 ? 's' : ''}` : `${plan.tiles.length} track tile${plan.tiles.length > 1 ? 's' : ''}`;
     const before = c.infrastructure;
