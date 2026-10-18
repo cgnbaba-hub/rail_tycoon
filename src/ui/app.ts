@@ -17,7 +17,7 @@ import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvemen
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
-import { AI, TERRITORIES, type AiLevel, type EconomicModel } from '../data';
+import { AI, SCENARIOS, TERRITORIES, type AiLevel, type EconomicModel } from '../data';
 import { companyTag, openCompanies, openGameOver } from './rivals';
 import { adviceCount, logDelivery, logEvent, openAdvisor, refreshAdvice, resetFeed, type AdvisorHost } from './advisor';
 import { clearChain, openOverlayPicker, openSupplyChains, overlay, refreshOverlay, setOverlay } from './overlays';
@@ -29,7 +29,8 @@ import { audio, type Sfx } from '../audio/engine';
 import { engineDef } from '../sim/train';
 import { goalChipHtml, openGoal, openScenarioEnd, openTitle } from './scenarios';
 import { Tutorial, hint } from './tutorial';
-import { scenarioDef } from '../sim/scenario';
+import { scenarioDef, startScenario } from '../sim/scenario';
+import { confirmModal } from './trains';
 import type { Advice } from '../sim/advisor';
 import { describeMods } from '../sim/modifiers';
 
@@ -279,6 +280,29 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     openAdvisor(this);
   }
 
+  /**
+   * Bring the tutorial back: in the tutorial map it resumes (steps already done are skipped);
+   * elsewhere it offers to start the tutorial map (your game is autosaved first).
+   */
+  showTutorial(): void {
+    const def = this.game.scenario ? scenarioDef(this.game.scenario.id) : undefined;
+    if (def?.tutorial) {
+      this.closeModal();
+      this.tutorial?.close();
+      this.tutorial = new Tutorial();
+      return;
+    }
+    void confirmModal(this, 'Start the tutorial?', 'The tutorial has its own small map. Your current game is autosaved first, so you can continue it later from the main menu.', 'Start tutorial').then((yes) => {
+      if (!yes) return;
+      writeSave('Autosave', this.game)
+        .catch(() => undefined)
+        .finally(() => {
+          const tut = SCENARIOS.find((s) => s.tutorial);
+          if (tut) withLoading('Preparing the tutorial…', () => this.startGame(startScenario(tut)));
+        });
+    });
+  }
+
   /** Title screen (new game, scenarios, tutorial, continue). */
   openTitle(): void {
     this.setSpeed(0);
@@ -505,8 +529,8 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     $('#goal').addEventListener('click', () => openGoal(this));
     $('#personal').addEventListener('click', () => openFinance(this, 'portfolio'));
     $('#btn-new').innerHTML = icon('newmap');
-    $('#btn-new').setAttribute('aria-label', 'New map');
-    $('#btn-new').addEventListener('click', () => this.openNewGameDialog());
+    $('#btn-new').setAttribute('aria-label', 'Main menu');
+    $('#btn-new').addEventListener('click', () => this.openTitle());
     $('#btn-save').innerHTML = icon('disk');
     $('#btn-save').setAttribute('aria-label', 'Save and load');
     $('#btn-save').addEventListener('click', () => void openSaves(this));
@@ -572,8 +596,11 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
     this.invalidatePanel();
   }
 
-  private zoomBy(d: number): void {
-    this.camera.zoomAt(this.canvas.width / 2, this.canvas.height / 2, this.camera.zoom + d);
+  /** Zoom one step around a buffer point (default: the centre), keeping the ground under it in place. */
+  private zoomBy(d: number, x = this.canvas.width / 2, y = this.canvas.height / 2): void {
+    const tile = this.renderer.pick(this.camera, x, y);
+    const h = tile ? this.game.world.tileAvgH(tile[0], tile[1]) : 0;
+    this.camera.zoomAt(x, y, this.camera.zoom + d, h);
   }
 
   private centerOnFocus(): void {
@@ -636,6 +663,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         document.querySelectorAll('#rail .btn.pulse').forEach((b) => b.id !== `tool-${tool}` && b.classList.remove('pulse'));
         if (tool) document.getElementById(`tool-${tool}`)?.classList.add('pulse');
         if (this.tutorial.finished) {
+          if (this.tutorial.skipped) this.toast('Tutorial hidden — bring it back any time with H (help) or from the goal at the top.', 'info');
           this.tutorial = null;
           this.refreshGoal();
         }
@@ -882,17 +910,23 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         this.tool?.pointerMove?.(null);
       }
     });
+    // One zoom step per wheel "notch"; trackpads send many tiny deltas, so they are summed
+    // and a short pause between steps keeps one flick from jumping several levels.
     let wheelAcc = 0;
+    let lastStep = 0;
     c.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
         if (!this.game) return;
-        wheelAcc += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
-        if (Math.abs(wheelAcc) < 50) return;
+        const now = performance.now();
+        if (now - lastStep > 400) wheelAcc = 0;
+        wheelAcc += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+        if (Math.abs(wheelAcc) < 40 || now - lastStep < 180) return;
         const [x, y] = this.toBuffer(e);
-        this.camera.zoomAt(x, y, this.camera.zoom + (wheelAcc < 0 ? 1 : -1));
+        this.zoomBy(wheelAcc < 0 ? 1 : -1, x, y);
         wheelAcc = 0;
+        lastStep = now;
       },
       { passive: false },
     );
@@ -1016,7 +1050,8 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         case 'escape':
           if (this.tool) this.setTool('inspect');
           else if (this.selectedTrain !== null) this.selectTrain(null);
-          else this.pinned = null;
+          else if (this.pinned) this.pinned = null;
+          else this.openTitle();
           break;
         default:
           return;
@@ -1152,17 +1187,20 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       ['Q / E', 'Rotate view 90°'],
       ['Click (Inspect)', 'Pin tile details'],
       ['Space / P', 'Pause / resume (building works while paused)'],
-      ['1 2 3 4', 'Speed 1× 2× 4× 8×'],
+      ['1 2 3 4', `Speed ${TIME.speeds.map((x) => `${x}×`).join(' ')}`],
       ['G / L', 'Tile grid / labels'],
       ['C', 'Centre on pinned tile / largest town'],
       ['N', 'New map'],
+      ['Esc (nothing selected)', 'Main menu: continue, tutorial, scenarios, load'],
       ['H / ?', 'This help'],
     ];
     const m = this.openModal(`
       <h2>Iron Baron — controls</h2>
       <div class="keys">${keys.map(([k, v]) => `<kbd>${esc(k)}</kbd><span>${esc(v)}</span>`).join('')}</div>
       <p class="hint">Grades matter: heavy trains crawl up steep track. Single track carries one train at a time between stations (which act as passing points); double track lets trains pass anywhere.</p>
-      <div class="actions"><button class="btn primary" id="help-ok">Got it</button></div>`);
+      <div class="actions"><button class="btn" id="help-tut">Show the tutorial</button><button class="btn" id="help-menu">Main menu</button><button class="btn primary" id="help-ok">Got it</button></div>`);
+    m.querySelector('#help-tut')!.addEventListener('click', () => this.showTutorial());
+    m.querySelector('#help-menu')!.addEventListener('click', () => this.openTitle());
     const ok = m.querySelector('#help-ok') as HTMLElement;
     ok.addEventListener('click', () => this.closeModal());
     ok.focus();

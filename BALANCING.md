@@ -8,8 +8,8 @@ Later milestones append their formulas (revenue, demand, stock price, …) here.
 | Constant | Value | Meaning |
 |---|---|---|
 | `ticksPerDay` | 24 | One tick = one in-game hour |
-| `realMsPerDayAtSpeed1` | 450 | 1× speed: a month ≈ 14 s, a year ≈ 2.7 min; at 8× a year ≈ 20 s |
-| `speeds` | 1, 2, 4, 8 | Speed multipliers |
+| `realMsPerDayAtSpeed1` | 1500 | 1× speed: a month ≈ 46 s, a year ≈ 9 min; speeds 1×/2×/5×/15× (at 15× a year ≈ 37 s) |
+| `speeds` | 1, 2, 5, 15 | Speed multipliers |
 | `maxTicksPerFrame` | 1200 | Safety cap per rendered frame |
 
 `ticks(frame) = floor(acc)`, `acc += min(dt, 250 ms) · speed · ticksPerDay / realMsPerDay`.

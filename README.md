@@ -54,7 +54,7 @@ npx vite-node scripts/rivals.ts -- <seed> <years> <level>    # watch AI rivals f
 | `Q` / `E` | Rotate the view 90° |
 | Hover / click | Inspect / pin a tile, town or industry (`Esc` unpins) |
 | `Space` / `P` | Pause / resume (everything stays usable while paused) |
-| `1` `2` `3` `4` | Speed 1× 2× 4× 8× |
+| `1` `2` `3` `4` | Speed 1× 2× 5× 15× (1×: a game day takes 1.5 s, a year about 9 minutes) |
 | `G` | Tile grid |
 | `L` | Town labels |
 | `C` | Centre on pinned tile / largest town |

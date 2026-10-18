@@ -68,6 +68,8 @@ export class Tutorial {
   private readonly seen = new Set<string>();
   private el: HTMLElement;
   private lastHtml = '';
+  /** The player pressed Skip (rather than finishing). */
+  skipped = false;
 
   constructor() {
     this.el = document.getElementById('tutorial') ?? document.createElement('div');
@@ -106,6 +108,7 @@ export class Tutorial {
       this.el.innerHTML = html;
       this.el.querySelector('[data-tut="next"]')?.addEventListener('click', () => this.note('next'));
       this.el.querySelector('[data-tut="skip"]')?.addEventListener('click', () => {
+        this.skipped = true;
         this.step = STEPS.length;
         this.close();
       });
@@ -153,4 +156,12 @@ export function hint(id: keyof typeof HINTS): string | null {
     /* storage blocked */
   }
   return HINTS[id];
+}
+
+export function resetHints(): void {
+  try {
+    window.localStorage.removeItem(HINT_KEY);
+  } catch {
+    /* storage blocked */
+  }
 }

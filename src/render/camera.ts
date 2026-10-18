@@ -102,13 +102,16 @@ export class Camera {
     this.clamp();
   }
 
-  /** Change zoom keeping the world point under (sx, sy) fixed. */
-  zoomAt(sx: number, sy: number, newZoom: number): void {
+  /**
+   * Change zoom keeping the world point under (sx, sy) fixed. `height` is the terrain height
+   * there (in levels), so the spot under the cursor stays put on hills too.
+   */
+  zoomAt(sx: number, sy: number, newZoom: number, height = 0): void {
     const z = Math.max(0, Math.min(ZOOMS.length - 1, newZoom));
     if (z === this.zoom) return;
-    const [bx, by] = this.screenToWorld(sx, sy);
+    const [bx, by] = this.screenToWorld(sx, sy, height);
     this.zoom = z;
-    const [ax, ay] = this.screenToWorld(sx, sy);
+    const [ax, ay] = this.screenToWorld(sx, sy, height);
     this.x += bx - ax;
     this.y += by - ay;
     this.clamp();

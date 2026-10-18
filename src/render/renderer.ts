@@ -397,10 +397,22 @@ export class Renderer {
     visible.sort((a, b) => a.cx + a.cy - (b.cx + b.cy));
     for (const v of visible) {
       const c = this.cache.get(this.key(v.cx, v.cy, rot, tw));
-      if (!c) continue;
-      c.used = this.frame;
-      const [sx, sy] = camera.toScreen(c.ox, c.oy);
-      this.ctx.drawImage(c.canvas, sx, sy, c.canvas.width * scale, c.canvas.height * scale);
+      if (c) {
+        c.used = this.frame;
+        const [sx, sy] = camera.toScreen(c.ox, c.oy);
+        this.ctx.drawImage(c.canvas, sx, sy, c.canvas.width * scale, c.canvas.height * scale);
+        continue;
+      }
+      // Not drawn at this zoom yet (e.g. right after zooming): stretch the same chunk from
+      // another zoom level so the view never shows holes while it is being redrawn.
+      for (const other of [tw * 2, tw / 2, tw * 4, tw / 4]) {
+        const o = this.cache.get(this.key(v.cx, v.cy, rot, other));
+        if (!o) continue;
+        const f = tw / other;
+        const [sx, sy] = camera.toScreen(o.ox * f, o.oy * f);
+        this.ctx.drawImage(o.canvas, sx, sy, o.canvas.width * f * scale, o.canvas.height * f * scale);
+        break;
+      }
     }
     this.evict();
   }

@@ -3,13 +3,15 @@ import type { Game } from '../sim/game';
 import { MEDALS, scenarioDef, scenarioProgress, startScenario, type Medal } from '../sim/scenario';
 import { esc } from './dom';
 import { icon } from './icons';
-import { listSaves, readSave } from './saves';
+import { listSaves, openSaves, readSave } from './saves';
+import { openSettings } from './settings';
 import { fmtMoney } from './tools';
 import type { TrainUiHost } from './trains';
 
 export interface ScenarioHost extends TrainUiHost {
   startGame(game: Game): void;
   openNewGameDialog(): void;
+  showTutorial(): void;
 }
 
 const MEDAL_KEY = 'ironBaron.medals';
@@ -72,7 +74,9 @@ export async function openTitle(host: ScenarioHost): Promise<void> {
         <button class="btn ${auto ? '' : 'primary'}" data-t="tutorial">Tutorial <small>learn to play in a few minutes</small></button>
         <button class="btn" data-t="scenarios">Scenarios <small>goals and medals</small></button>
         <button class="btn" data-t="sandbox">Sandbox <small>a random map, your rules</small></button>
-        <button class="btn" data-t="close">Explore this map</button>
+        <button class="btn" data-t="load">Load game <small>saves, import a file</small></button>
+        <button class="btn" data-t="settings">Settings <small>sound, size, hints</small></button>
+        <button class="btn" data-t="close">Back to the game <small>${esc(host.game.company.name)}</small></button>
       </div>
     </div>`,
     'title',
@@ -86,6 +90,8 @@ export async function openTitle(host: ScenarioHost): Promise<void> {
   on('tutorial', () => launch(host, SCENARIOS.find((s) => s.tutorial)!));
   on('scenarios', () => openScenarios(host));
   on('sandbox', () => host.openNewGameDialog());
+  on('load', () => void openSaves(host));
+  on('settings', () => openSettings(host));
   on('close', () => host.closeModal());
 }
 
@@ -159,9 +165,10 @@ export function openGoal(host: ScenarioHost): void {
     <div class="section">Medals</div><ul class="goal-list">${tiers}</ul>
     ${reqs ? `<div class="section">Needed for any medal</div><ul class="goal-list">${reqs}</ul>` : ''}
     <p class="hint">Reach gold and the scenario ends at once; otherwise your best medal counts when time runs out.</p>
-    <div class="actions"><button class="btn primary" data-a="ok">Close</button></div>`,
+    <div class="actions">${p.def.tutorial ? '<button class="btn" data-a="tut">Show the tutorial</button>' : ''}<button class="btn primary" data-a="ok">Close</button></div>`,
   );
   m.querySelector('[data-a="ok"]')!.addEventListener('click', () => host.closeModal());
+  m.querySelector('[data-a="tut"]')?.addEventListener('click', () => host.showTutorial());
 }
 
 export function openScenarioEnd(host: ScenarioHost, medal: Medal): void {

@@ -1,6 +1,7 @@
 import { esc } from './dom';
 import { yearEndEnabled, setYearEnd } from './finance';
 import { prefs, setPrefs, type UiScale } from './prefs';
+import { resetHints } from './tutorial';
 import type { TrainUiHost } from './trains';
 
 export function openSettings(host: TrainUiHost): void {
@@ -19,7 +20,11 @@ export function openSettings(host: TrainUiHost): void {
     <label class="check"><input type="checkbox" id="st-hints" ${prefs.hints ? 'checked' : ''}> Contextual hints</label>
     <label class="check"><input type="checkbox" id="st-ye" ${yearEndEnabled() ? 'checked' : ''}> Year-end report every January</label>
     <div class="row"><label for="st-auto">Autosave</label><select id="st-auto">${opt('0', 'Off', String(prefs.autosaveMonths))}${opt('1', 'Every month', String(prefs.autosaveMonths))}${opt('3', 'Every 3 months', String(prefs.autosaveMonths))}${opt('12', 'Every year', String(prefs.autosaveMonths))}</select></div>
-    <div class="actions"><button class="btn primary" data-act="close">Done</button></div>`);
+    <div class="actions"><button class="btn" data-act="hints">Show all tips again</button><button class="btn primary" data-act="close">Done</button></div>`);
+  m.querySelector('[data-act="hints"]')!.addEventListener('click', () => {
+    resetHints();
+    host.toast('Tips will show again.', 'info');
+  });
   const $i = (id: string) => m.querySelector<HTMLInputElement>(id)!;
   $i('#st-music').addEventListener('input', (e) => setPrefs({ music: Number((e.target as HTMLInputElement).value) / 100 }));
   $i('#st-sfx').addEventListener('input', (e) => setPrefs({ sfx: Number((e.target as HTMLInputElement).value) / 100 }));
