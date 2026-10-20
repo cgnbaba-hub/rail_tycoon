@@ -43,7 +43,9 @@ describe('scenarios', () => {
       expect(p.def.id).toBe(def.id);
       expect(Number.isFinite(p.metric)).toBe(true);
       expect(p.requirements).toHaveLength(def.requires.length);
-      expect(p.medalTier).toBe(def.goal.metric === 'rank' ? p.tier : 0);
+      // Only a rank goal without requirements can count from day one.
+      expect(p.medalTier).toBe(def.goal.metric === 'rank' && !def.requires.length ? p.tier : 0);
+      expect(['easy', 'medium', 'hard']).toContain(def.difficulty);
     }
   });
 

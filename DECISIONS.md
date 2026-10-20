@@ -259,10 +259,26 @@ Decisions made without asking (per the working rules). Revisit any of them on re
 - **Territories are Voronoi regions** around spread-out towns. Only the player has goodwill
   (rivals simply stay out of restricted regions). Goodwill moves slowly and visibly: it is in
   the inspector, the overlay and the construction cost. Hand-made worlds (tests, future
-  scenario maps) start with charters off; generated maps with charters on (new-map option).
+  scenario maps from tests) start with charters off; generated and hand-made maps with charters
+  on (new-map option).
 - **Scenarios are data** (map parameters, settings, one metric with three tiers, optional
   "connect these towns" requirements). The medal is the best tier reached; gold ends the
   scenario early, otherwise it ends at the deadline. Medals are stored in the browser.
+- **Hand-made maps are layouts, not tile dumps** (`maps.json`): features in map fractions on a
+  gentle noise base, so a map stays small, editable by hand, works at every size and still
+  looks natural; the seed only changes detail. Named towns are placed first (so their ids are
+  stable and scenarios can name them), get flattened ground, and keep their size and
+  population; extra random towns stay village/town-sized so the named ones remain the
+  landmarks. Fixed industries fall back to any flat free spot nearby if the usual placement
+  rules (terrain, height, distance to a town) say no — the author asked for it there.
+- **Rivals look further on sparse maps:** when no town pair lies within a baron's usual route
+  length, the AI widens the range step by step (up to 2.6×) instead of building nothing.
+- **Board votes can be switched off** (`boardVotes`): off in the easy scenarios and optional in
+  the sandbox, since the spec makes being voted out a game-over only "in some scenarios".
+- **Medal tiers are checked with a scripted player** (`scripts/scenario-bot.ts`): it builds a
+  fixed list of sensible lines per scenario, adds trains where cargo waits and plays to the
+  deadline. It plays plainly, so its result is about bronze to silver; gold needs a better
+  plan.
 - **The tutorial is a scenario plus a step list** whose conditions read the game state
   (stations in the two towns, connected, a train, revenue, windows opened), so it can't get
   out of sync with what the player actually did.

@@ -647,6 +647,10 @@ ol.route li.cur {
   padding: 0.15em 0.3em;
   min-width: 0;
 }
+.modal select:disabled,
+.modal input:disabled {
+  opacity: 0.4;
+}
 .modal input:focus,
 .modal select:focus {
   outline: var(--px) solid var(--c-gold);
@@ -1468,13 +1472,75 @@ svg.spark polyline {
 .title-buttons .btn.primary small {
   color: var(--c-ink);
 }
+.ng-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1.5em;
+}
+@media (max-width: 760px) {
+  .ng-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.ng-thumb {
+  display: block;
+  margin: 0 auto 0.4em;
+  width: 224px;
+  height: 114px;
+  image-rendering: pixelated;
+}
+.ng-desc {
+  min-height: 2.4em;
+  margin: 0.2em 0 0.4em;
+}
 .scn-list {
   max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 0.3em;
 }
 .scn-card {
   border: var(--px) solid var(--c-slate);
   padding: 0.3em 0.6em;
   margin-bottom: 0.5em;
+  display: flex;
+  gap: 0.6em;
+  align-items: flex-start;
+}
+.scn-body {
+  flex: 1;
+  min-width: 0;
+}
+.scn-thumb {
+  flex: none;
+  width: 112px;
+  height: 58px;
+  margin-top: 0.3em;
+  image-rendering: pixelated;
+}
+.diff {
+  font-size: 0.85em;
+  padding: 0 0.35em;
+  border: var(--px) solid currentColor;
+  text-transform: uppercase;
+}
+.diff.easy {
+  color: var(--c-leaf);
+}
+.diff.medium {
+  color: var(--c-gold);
+}
+.diff.hard {
+  color: var(--c-ember);
+}
+h2 small {
+  color: var(--muted);
+  font-size: 0.6em;
+  font-weight: normal;
+}
+@media (max-width: 560px) {
+  .scn-thumb {
+    display: none;
+  }
 }
 .scn-head {
   display: flex;

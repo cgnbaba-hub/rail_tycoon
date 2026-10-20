@@ -61,40 +61,12 @@ export class Minimap {
   refresh(): void {
     const world = this.world;
     if (!world) return;
-    const W = world.width;
-    const H = world.height;
     const img = document.createElement('canvas');
-    img.width = W;
-    img.height = H;
+    img.width = world.width;
+    img.height = world.height;
     const ictx = img.getContext('2d')!;
-    const data = ictx.createImageData(W, H);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        const ter = world.terrain[i];
-        let c: number = TERRAIN_COLOR[ter];
-        if (ter !== T.Water) {
-          const hf = world.tileAvgH(x, y) / world.maxHeight;
-          if (hf > 0.45) c = LIGHTER[c];
-          else if (hf < 0.12 && ter === T.Grass) c = DARKER[c];
-        }
-        if (world.flags[i] & F.River) c = PAL.shallow;
-        if (world.flags[i] & F.Road) c = PAL.soil;
-        const occ = world.occupant[i];
-        if (occupantKind(occ) === OCC_BUILDING) c = PAL.brick;
-        if (occupantKind(occ) === OCC_INDUSTRY) c = PAL.gold;
-        const node = world.track.getIdx(i);
-        if (node && node.kind !== NODE_TUNNEL) {
-          const rival = node.owner !== 0 ? this.ownerColors[node.owner] : undefined;
-          c = rival ? (node.station >= 0 ? LIGHTER[PAL[rival as keyof typeof PAL]] : PAL[rival as keyof typeof PAL]) : node.station >= 0 ? PAL.snow : PAL.ink;
-        }
-        const [r, g, b] = PALETTE_RGB[c];
-        data.data[i * 4] = r;
-        data.data[i * 4 + 1] = g;
-        data.data[i * 4 + 2] = b;
-        data.data[i * 4 + 3] = 255;
-      }
-    }
+    const data = ictx.createImageData(world.width, world.height);
+    paintTiles(world, this.ownerColors, data.data);
     ictx.putImageData(data, 0, 0);
     this.image = img;
   }
@@ -156,5 +128,41 @@ export class Minimap {
     });
     ctx.closePath();
     ctx.stroke();
+  }
+}
+
+/**
+ * One pixel per tile (RGBA into `out`): terrain shaded by height, rivers, roads, towns,
+ * industries and track (rivals in their colours). No DOM, so a worker can use it too.
+ */
+export function paintTiles(world: World, ownerColors: string[], out: Uint8ClampedArray): void {
+  const W = world.width;
+  const H = world.height;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const ter = world.terrain[i];
+      let c: number = TERRAIN_COLOR[ter];
+      if (ter !== T.Water) {
+        const hf = world.tileAvgH(x, y) / world.maxHeight;
+        if (hf > 0.45) c = LIGHTER[c];
+        else if (hf < 0.12 && ter === T.Grass) c = DARKER[c];
+      }
+      if (world.flags[i] & F.River) c = PAL.shallow;
+      if (world.flags[i] & F.Road) c = PAL.soil;
+      const occ = world.occupant[i];
+      if (occupantKind(occ) === OCC_BUILDING) c = PAL.brick;
+      if (occupantKind(occ) === OCC_INDUSTRY) c = PAL.gold;
+      const node = world.track.getIdx(i);
+      if (node && node.kind !== NODE_TUNNEL) {
+        const rival = node.owner !== 0 ? ownerColors[node.owner] : undefined;
+        c = rival ? (node.station >= 0 ? LIGHTER[PAL[rival as keyof typeof PAL]] : PAL[rival as keyof typeof PAL]) : node.station >= 0 ? PAL.snow : PAL.ink;
+      }
+      const [r, g, b] = PALETTE_RGB[c];
+      out[i * 4] = r;
+      out[i * 4 + 1] = g;
+      out[i * 4 + 2] = b;
+      out[i * 4 + 3] = 255;
+    }
   }
 }

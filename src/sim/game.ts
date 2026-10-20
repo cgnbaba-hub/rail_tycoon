@@ -135,6 +135,8 @@ export interface GameSettings {
   friendlyAi: boolean;
   /** Some territories need a charter (default on for generated maps, off for hand-made worlds). */
   charters: boolean;
+  /** The shareholders vote on the chairman each January (two failed votes end the game). Off in the easy scenarios. */
+  boardVotes: boolean;
 }
 
 /** Map a cost breakdown onto ledger categories. */
@@ -215,7 +217,7 @@ export class Game {
     const S = FINANCE.shares;
     const fortune = S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice;
     this.investors = [new Chairman('You', fortune)];
-    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, charters: !world, ...settings };
+    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, charters: !world, boardVotes: true, ...settings };
     const rivals = Math.max(0, Math.min(AI.barons.length, this.settings.rivals));
     for (let k = 0; k < rivals; k++) {
       const b = AI.barons[k];

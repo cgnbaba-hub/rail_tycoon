@@ -1,0 +1,247 @@
+{
+  "_doc": "Hand-made maps (fictional places). Positions and sizes are fractions of the map size: x grows east, y grows south ([0,0] = north-west corner). land/roughness/exponent shape the noise base; features are applied in order (ridge, hills: raise; plain: blend to a height; river: carve a valley and mark the river; sea, lake: water with sloping shores; forest: more (+) or fewer (−) trees; desert: sand). Named towns come first (their ids follow this list), then extraTowns random villages/towns, the fixed industries (if in era), and random industries at randomIndustries × the usual density. See README (Hand-made maps).",
+  "maps": [
+    {
+      "id": "high_pass",
+      "name": "High Pass",
+      "desc": "A busy port on the east coast, wheat country in the west and a wall of mountains between them with one high pass.",
+      "size": 128,
+      "land": 0.16,
+      "roughness": 0.2,
+      "features": [
+        { "type": "plain", "x": 0.18, "y": 0.5, "r": 0.22, "height": 0.1 },
+        { "type": "ridge", "path": [[0.5, -0.05], [0.55, 0.28], [0.5, 0.62], [0.55, 1.05]], "width": 0.1, "height": 1.0, "jagged": 0.3 },
+        { "type": "plain", "x": 0.52, "y": 0.46, "r": 0.06, "height": 0.38 },
+        { "type": "hills", "x": 0.66, "y": 0.2, "r": 0.12, "height": 0.3 },
+        { "type": "river", "path": [[0.6, 0.6], [0.7, 0.66], [0.8, 0.64], [0.95, 0.66]] },
+        { "type": "river", "path": [[0.42, 0.2], [0.3, 0.32], [0.16, 0.34], [0.0, 0.4]] },
+        { "type": "sea", "edge": "east", "at": 0.12, "wobble": 0.04 },
+        { "type": "forest", "x": 0.55, "y": 0.8, "r": 0.15, "amount": 0.08 },
+        { "type": "forest", "x": 0.2, "y": 0.5, "r": 0.3, "amount": -0.12 }
+      ],
+      "towns": [
+        { "name": "Port Ashby", "x": 0.8, "y": 0.44, "size": "city", "pop": 11000 },
+        { "name": "Wheatfield", "x": 0.18, "y": 0.46, "size": "town", "pop": 4200 },
+        { "name": "Fairhaven", "x": 0.76, "y": 0.8, "size": "town", "pop": 3000 },
+        { "name": "Cedar Bend", "x": 0.26, "y": 0.76, "size": "town", "pop": 2600 },
+        { "name": "Millbrook", "x": 0.14, "y": 0.18, "size": "village", "pop": 800 },
+        { "name": "Silverton", "x": 0.62, "y": 0.3, "size": "village", "pop": 600 }
+      ],
+      "extraTowns": 3,
+      "industries": [
+        { "type": "coal_mine", "x": 0.6, "y": 0.4 },
+        { "type": "iron_mine", "x": 0.45, "y": 0.68 },
+        { "type": "steel_mill", "x": 0.76, "y": 0.34 },
+        { "type": "grain_farm", "x": 0.12, "y": 0.6 },
+        { "type": "grain_farm", "x": 0.3, "y": 0.5 },
+        { "type": "cattle_ranch", "x": 0.25, "y": 0.28 },
+        { "type": "food_plant", "x": 0.84, "y": 0.56 }
+      ],
+      "randomIndustries": 0.6
+    },
+    {
+      "id": "twin_rivers",
+      "name": "Twin Rivers",
+      "desc": "Two rivers run out of the wooded north, meet at Forkton and flow into a sheltered southern bay.",
+      "size": 128,
+      "land": 0.14,
+      "roughness": 0.18,
+      "features": [
+        { "type": "hills", "x": 0.15, "y": 0.08, "r": 0.25, "height": 0.35 },
+        { "type": "hills", "x": 0.85, "y": 0.08, "r": 0.25, "height": 0.4 },
+        { "type": "hills", "x": 0.5, "y": 0.2, "r": 0.14, "height": 0.25 },
+        { "type": "river", "path": [[0.12, 0.05], [0.25, 0.25], [0.38, 0.4], [0.5, 0.52]], "valley": 0.04 },
+        { "type": "river", "path": [[0.9, 0.06], [0.76, 0.2], [0.62, 0.4], [0.5, 0.52]], "valley": 0.04 },
+        { "type": "river", "path": [[0.5, 0.52], [0.47, 0.64], [0.5, 0.76], [0.5, 0.86]], "valley": 0.05 },
+        { "type": "lake", "x": 0.5, "y": 1.0, "rx": 0.26, "ry": 0.15, "wobble": 0.2 },
+        { "type": "forest", "x": 0.5, "y": 0.08, "r": 0.4, "amount": 0.14 },
+        { "type": "forest", "x": 0.5, "y": 0.7, "r": 0.3, "amount": -0.1 }
+      ],
+      "towns": [
+        { "name": "Rivermouth", "x": 0.42, "y": 0.8, "size": "city", "pop": 9500 },
+        { "name": "Forkton", "x": 0.52, "y": 0.56, "size": "town", "pop": 4000 },
+        { "name": "Upper Weld", "x": 0.24, "y": 0.3, "size": "town", "pop": 2400 },
+        { "name": "Elmford", "x": 0.73, "y": 0.27, "size": "town", "pop": 2200 },
+        { "name": "Baywater", "x": 0.72, "y": 0.78, "size": "town", "pop": 1800 },
+        { "name": "Pinehollow", "x": 0.5, "y": 0.14, "size": "village", "pop": 600 }
+      ],
+      "extraTowns": 3,
+      "industries": [
+        { "type": "logging_camp", "x": 0.36, "y": 0.12 },
+        { "type": "logging_camp", "x": 0.64, "y": 0.1 },
+        { "type": "lumber_mill", "x": 0.46, "y": 0.48 },
+        { "type": "grain_farm", "x": 0.28, "y": 0.62 },
+        { "type": "dairy_farm", "x": 0.68, "y": 0.6 },
+        { "type": "food_plant", "x": 0.34, "y": 0.74 },
+        { "type": "factory", "x": 0.56, "y": 0.72 }
+      ],
+      "randomIndustries": 0.5
+    },
+    {
+      "id": "great_lake",
+      "name": "Great Lake",
+      "desc": "Towns ring a great inland lake: timber in the northern woods, farms in the west, coal in the south-eastern hills.",
+      "size": 192,
+      "land": 0.16,
+      "roughness": 0.22,
+      "features": [
+        { "type": "lake", "x": 0.5, "y": 0.5, "rx": 0.22, "ry": 0.16, "wobble": 0.2 },
+        { "type": "hills", "x": 0.82, "y": 0.82, "r": 0.2, "height": 0.45 },
+        { "type": "hills", "x": 0.5, "y": 0.06, "r": 0.18, "height": 0.3 },
+        { "type": "ridge", "path": [[0.9, 0.3], [0.96, 0.6]], "width": 0.06, "height": 0.5 },
+        { "type": "river", "path": [[0.5, 0.06], [0.48, 0.2], [0.5, 0.34]] },
+        { "type": "river", "path": [[0.1, 0.85], [0.2, 0.72], [0.3, 0.6]] },
+        { "type": "forest", "x": 0.5, "y": 0.12, "r": 0.35, "amount": 0.15 },
+        { "type": "forest", "x": 0.15, "y": 0.5, "r": 0.25, "amount": -0.12 }
+      ],
+      "towns": [
+        { "name": "Northshore", "x": 0.52, "y": 0.27, "size": "city", "pop": 10000 },
+        { "name": "Southport", "x": 0.46, "y": 0.73, "size": "city", "pop": 12000 },
+        { "name": "Westlake", "x": 0.21, "y": 0.47, "size": "town", "pop": 3500 },
+        { "name": "Easton", "x": 0.79, "y": 0.5, "size": "town", "pop": 3800 },
+        { "name": "Pinecrest", "x": 0.3, "y": 0.15, "size": "village", "pop": 700 },
+        { "name": "Timberline", "x": 0.72, "y": 0.13, "size": "village", "pop": 650 },
+        { "name": "Coalridge", "x": 0.75, "y": 0.78, "size": "town", "pop": 1900 },
+        { "name": "Harvest Plains", "x": 0.12, "y": 0.28, "size": "town", "pop": 1600 },
+        { "name": "Reedmarsh", "x": 0.2, "y": 0.75, "size": "village", "pop": 900 }
+      ],
+      "extraTowns": 6,
+      "industries": [
+        { "type": "logging_camp", "x": 0.4, "y": 0.1 },
+        { "type": "logging_camp", "x": 0.62, "y": 0.08 },
+        { "type": "paper_mill", "x": 0.58, "y": 0.24 },
+        { "type": "lumber_mill", "x": 0.4, "y": 0.26 },
+        { "type": "coal_mine", "x": 0.84, "y": 0.72 },
+        { "type": "coal_mine", "x": 0.86, "y": 0.88 },
+        { "type": "iron_mine", "x": 0.92, "y": 0.45 },
+        { "type": "steel_mill", "x": 0.55, "y": 0.78 },
+        { "type": "grain_farm", "x": 0.1, "y": 0.4 },
+        { "type": "grain_farm", "x": 0.16, "y": 0.6 },
+        { "type": "cattle_ranch", "x": 0.06, "y": 0.2 },
+        { "type": "food_plant", "x": 0.26, "y": 0.4 }
+      ],
+      "randomIndustries": 0.7
+    },
+    {
+      "id": "oil_basin",
+      "name": "Black Gold Basin",
+      "desc": "A dry basin ringed by mountains, its sands dotted with oil wells; the refineries sit by the towns on the south-eastern coast.",
+      "size": 128,
+      "land": 0.2,
+      "roughness": 0.2,
+      "features": [
+        { "type": "ridge", "path": [[-0.05, 0.6], [0.12, 0.3], [0.3, 0.08], [0.6, -0.05]], "width": 0.12, "height": 0.75 },
+        { "type": "plain", "x": 0.45, "y": 0.5, "r": 0.28, "height": 0.14 },
+        { "type": "desert", "x": 0.45, "y": 0.45, "r": 0.3 },
+        { "type": "sea", "edge": "south", "at": 0.1, "wobble": 0.04 },
+        { "type": "sea", "edge": "east", "at": 0.08, "wobble": 0.04 },
+        { "type": "river", "path": [[0.18, 0.36], [0.3, 0.55], [0.36, 0.75], [0.4, 0.95]] },
+        { "type": "forest", "x": 0.45, "y": 0.45, "r": 0.4, "amount": -0.2 }
+      ],
+      "towns": [
+        { "name": "Mesa City", "x": 0.72, "y": 0.76, "size": "city", "pop": 9000 },
+        { "name": "Petrolia", "x": 0.47, "y": 0.47, "size": "town", "pop": 2500 },
+        { "name": "Gulfport", "x": 0.86, "y": 0.42, "size": "town", "pop": 3500 },
+        { "name": "Dry Creek", "x": 0.3, "y": 0.62, "size": "village", "pop": 700 },
+        { "name": "Sandoval", "x": 0.6, "y": 0.28, "size": "village", "pop": 600 },
+        { "name": "Cactus Flat", "x": 0.25, "y": 0.4, "size": "village", "pop": 500 },
+        { "name": "Bayshore", "x": 0.42, "y": 0.84, "size": "town", "pop": 2000 }
+      ],
+      "extraTowns": 2,
+      "industries": [
+        { "type": "oil_well", "x": 0.36, "y": 0.42 },
+        { "type": "oil_well", "x": 0.4, "y": 0.34 },
+        { "type": "oil_well", "x": 0.52, "y": 0.38 },
+        { "type": "oil_well", "x": 0.56, "y": 0.5 },
+        { "type": "oil_well", "x": 0.42, "y": 0.56 },
+        { "type": "oil_well", "x": 0.34, "y": 0.5 },
+        { "type": "oil_well", "x": 0.6, "y": 0.6 },
+        { "type": "oil_well", "x": 0.5, "y": 0.62 },
+        { "type": "refinery", "x": 0.78, "y": 0.66 },
+        { "type": "refinery", "x": 0.82, "y": 0.34 },
+        { "type": "chemical_plant", "x": 0.64, "y": 0.82 },
+        { "type": "cattle_ranch", "x": 0.68, "y": 0.4 }
+      ],
+      "randomIndustries": 0.4
+    },
+    {
+      "id": "coast_to_coast",
+      "name": "Coast to Coast",
+      "desc": "A whole continent: two great harbours on opposite oceans, prairie in between and the Granite Range to cross.",
+      "size": 256,
+      "land": 0.17,
+      "roughness": 0.24,
+      "features": [
+        { "type": "sea", "edge": "west", "at": 0.06, "wobble": 0.03 },
+        { "type": "sea", "edge": "east", "at": 0.06, "wobble": 0.03 },
+        { "type": "ridge", "path": [[0.3, -0.05], [0.34, 0.3], [0.3, 0.6], [0.35, 1.05]], "width": 0.08, "height": 0.85, "jagged": 0.6 },
+        { "type": "plain", "x": 0.32, "y": 0.45, "r": 0.05, "height": 0.4 },
+        { "type": "plain", "x": 0.33, "y": 0.82, "r": 0.04, "height": 0.45 },
+        { "type": "plain", "x": 0.58, "y": 0.5, "r": 0.24, "height": 0.12 },
+        { "type": "hills", "x": 0.8, "y": 0.25, "r": 0.14, "height": 0.35 },
+        { "type": "river", "path": [[0.4, 0.2], [0.55, 0.32], [0.7, 0.4], [0.8, 0.5], [0.95, 0.52]], "valley": 0.03 },
+        { "type": "river", "path": [[0.26, 0.6], [0.18, 0.62], [0.06, 0.66]] },
+        { "type": "forest", "x": 0.2, "y": 0.3, "r": 0.2, "amount": 0.12 },
+        { "type": "forest", "x": 0.58, "y": 0.6, "r": 0.25, "amount": -0.12 }
+      ],
+      "towns": [
+        { "name": "Bayview", "x": 0.1, "y": 0.45, "size": "metropolis", "pop": 30000 },
+        { "name": "Eastport", "x": 0.9, "y": 0.58, "size": "metropolis", "pop": 34000 },
+        { "name": "Prairie Junction", "x": 0.56, "y": 0.48, "size": "city", "pop": 8000 },
+        { "name": "Summit", "x": 0.32, "y": 0.45, "size": "village", "pop": 700 },
+        { "name": "Redwood", "x": 0.16, "y": 0.22, "size": "town", "pop": 3000 },
+        { "name": "Golden Gulch", "x": 0.2, "y": 0.75, "size": "town", "pop": 2500 },
+        { "name": "Great Falls", "x": 0.7, "y": 0.38, "size": "city", "pop": 7000 },
+        { "name": "Sweetwater", "x": 0.46, "y": 0.72, "size": "town", "pop": 2800 },
+        { "name": "Northgate", "x": 0.82, "y": 0.18, "size": "town", "pop": 3200 },
+        { "name": "Southfork", "x": 0.78, "y": 0.84, "size": "town", "pop": 3600 }
+      ],
+      "extraTowns": 12,
+      "industries": [
+        { "type": "logging_camp", "x": 0.22, "y": 0.3 },
+        { "type": "lumber_mill", "x": 0.14, "y": 0.34 },
+        { "type": "iron_mine", "x": 0.36, "y": 0.6 },
+        { "type": "coal_mine", "x": 0.82, "y": 0.28 },
+        { "type": "steel_mill", "x": 0.86, "y": 0.5 },
+        { "type": "grain_farm", "x": 0.5, "y": 0.4 },
+        { "type": "grain_farm", "x": 0.62, "y": 0.58 },
+        { "type": "cattle_ranch", "x": 0.52, "y": 0.6 },
+        { "type": "food_plant", "x": 0.6, "y": 0.44 }
+      ],
+      "randomIndustries": 0.9
+    },
+    {
+      "id": "capital",
+      "name": "Capital Region",
+      "desc": "One great city by a river and a ring of growing suburbs: a commuter railroad waiting to happen.",
+      "size": 128,
+      "land": 0.15,
+      "roughness": 0.16,
+      "features": [
+        { "type": "river", "path": [[0.0, 0.3], [0.25, 0.4], [0.48, 0.47], [0.7, 0.58], [0.85, 0.7], [1.0, 0.76]], "valley": 0.03 },
+        { "type": "hills", "x": 0.2, "y": 0.8, "r": 0.18, "height": 0.35 },
+        { "type": "hills", "x": 0.8, "y": 0.15, "r": 0.16, "height": 0.3 },
+        { "type": "lake", "x": 0.68, "y": 0.84, "rx": 0.07, "ry": 0.05 },
+        { "type": "forest", "x": 0.5, "y": 0.5, "r": 0.25, "amount": -0.15 }
+      ],
+      "towns": [
+        { "name": "Capitol City", "x": 0.5, "y": 0.5, "size": "metropolis", "pop": 45000 },
+        { "name": "Oakdale", "x": 0.22, "y": 0.28, "size": "town", "pop": 4200 },
+        { "name": "Riverside", "x": 0.78, "y": 0.6, "size": "town", "pop": 4500 },
+        { "name": "Hillcrest", "x": 0.25, "y": 0.72, "size": "town", "pop": 3800 },
+        { "name": "Northfield", "x": 0.55, "y": 0.18, "size": "town", "pop": 4000 },
+        { "name": "Lakeview", "x": 0.6, "y": 0.8, "size": "town", "pop": 3600 },
+        { "name": "Westbrook", "x": 0.12, "y": 0.5, "size": "town", "pop": 3000 },
+        { "name": "Eastgate", "x": 0.86, "y": 0.36, "size": "town", "pop": 3300 }
+      ],
+      "extraTowns": 5,
+      "industries": [
+        { "type": "factory", "x": 0.4, "y": 0.62 },
+        { "type": "food_plant", "x": 0.64, "y": 0.4 },
+        { "type": "dairy_farm", "x": 0.4, "y": 0.86 },
+        { "type": "grain_farm", "x": 0.86, "y": 0.86 }
+      ],
+      "randomIndustries": 0.35
+    }
+  ]
+}

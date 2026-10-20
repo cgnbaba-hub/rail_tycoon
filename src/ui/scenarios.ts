@@ -1,10 +1,11 @@
-import { SCENARIOS, type ScenarioDef } from '../data';
+import { MAP_BY_ID, SCENARIOS, type ScenarioDef } from '../data';
 import type { Game } from '../sim/game';
-import { MEDALS, scenarioDef, scenarioProgress, startScenario, type Medal } from '../sim/scenario';
+import { MEDALS, scenarioDef, scenarioMapParams, scenarioProgress, startScenario, type Medal } from '../sim/scenario';
 import { esc } from './dom';
 import { icon } from './icons';
 import { listSaves, openSaves, readSave } from './saves';
 import { openSettings } from './settings';
+import { drawThumb } from './thumbs';
 import { fmtMoney } from './tools';
 import type { TrainUiHost } from './trains';
 
@@ -114,20 +115,29 @@ function launch(host: ScenarioHost, def: ScenarioDef): void {
 
 export function openScenarios(host: ScenarioHost): void {
   const won = medals();
-  const cards = SCENARIOS.map(
-    (s) => `<div class="scn-card">
-      <div class="scn-head"><b>${esc(s.name)}</b> <small>${s.map.startYear}–${s.map.startYear + s.years} · ${s.map.size}² · ${s.settings.rivals ?? 0} rival${s.settings.rivals === 1 ? '' : 's'}</small><span class="grow"></span>${medalIcon(won[s.id])}</div>
-      <p>${esc(s.brief)}</p>
-      <div class="scn-goal"><small>${esc(s.goal.label)}:</small> ${tierText(s)}</div>
-      <div class="actions"><button class="btn small primary" data-start="${s.id}">Start</button></div>
-    </div>`,
-  ).join('');
+  const cards = SCENARIOS.map((s) => {
+    const p = scenarioMapParams(s);
+    const map = s.map.layout ? MAP_BY_ID.get(s.map.layout)?.name : null;
+    return `<div class="scn-card">
+      <canvas class="scn-thumb" data-thumb="${s.id}" width="112" height="58" aria-hidden="true"></canvas>
+      <div class="scn-body">
+        <div class="scn-head"><b>${esc(s.name)}</b> <span class="diff ${s.difficulty}">${s.difficulty}</span><span class="grow"></span>${medalIcon(won[s.id])}</div>
+        <small>${s.map.startYear}–${s.map.startYear + s.years} · ${map ? `${esc(map)} · ` : ''}${p.size}² · ${s.settings.rivals ?? 0} rival${s.settings.rivals === 1 ? '' : 's'}</small>
+        <p>${esc(s.brief)}</p>
+        <div class="scn-goal"><small>${esc(s.goal.label)}:</small> ${tierText(s)}</div>
+        ${s.requires.length ? `<div class="scn-goal"><small>Needed for any medal:</small> ${s.requires.map((r) => (typeof r.a === 'string' ? `link ${esc(r.a)} and ${esc(String(r.b))} by rail` : 'link two big towns by rail')).join(' · ')}</div>` : ''}
+        <div class="actions"><button class="btn small primary" data-start="${s.id}">Start</button></div>
+      </div>
+    </div>`;
+  }).join('');
+  const done = SCENARIOS.filter((s) => won[s.id] && won[s.id] !== 'none').length;
   const m = host.openModal(
-    `<h2>Scenarios</h2><div class="scn-list scroll">${cards}</div>
+    `<h2>Scenarios <small>${done} of ${SCENARIOS.length} with a medal</small></h2><div class="scn-list scroll">${cards}</div>
     <div class="actions"><button class="btn" data-a="back">Back</button></div>`,
     'wide',
   );
   m.querySelectorAll<HTMLElement>('[data-start]').forEach((b) => b.addEventListener('click', () => launch(host, SCENARIOS.find((s) => s.id === b.dataset.start)!)));
+  m.querySelectorAll<HTMLCanvasElement>('[data-thumb]').forEach((c) => drawThumb(c, scenarioMapParams(SCENARIOS.find((s) => s.id === c.dataset.thumb)!)));
   m.querySelector('[data-a="back"]')!.addEventListener('click', () => void openTitle(host));
 }
 

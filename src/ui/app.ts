@@ -17,7 +17,7 @@ import { bindImprovements, bindIndustry, economyChipHtml, economyTip, improvemen
 import { bindTrainPanel, openFleet, openTrainDialog, stationEconomyHtml, trainPanelHtml, type TrainUiHost } from './trains';
 import { stopTile } from '../sim/train';
 import { ECONOMY } from '../data';
-import { AI, SCENARIOS, TERRITORIES, type AiLevel, type EconomicModel } from '../data';
+import { AI, MAPS, MAP_BY_ID, SCENARIOS, TERRITORIES, type AiLevel, type EconomicModel } from '../data';
 import { companyTag, openCompanies, openGameOver } from './rivals';
 import { adviceCount, logDelivery, logEvent, openAdvisor, refreshAdvice, resetFeed, type AdvisorHost } from './advisor';
 import { clearChain, openOverlayPicker, openSupplyChains, overlay, refreshOverlay, setOverlay } from './overlays';
@@ -25,6 +25,7 @@ import { openStats } from './stats';
 import { prefs, onPrefs, uiFontTarget } from './prefs';
 import { openSaves, writeSave } from './saves';
 import { openSettings } from './settings';
+import { drawThumb } from './thumbs';
 import { audio, type Sfx } from '../audio/engine';
 import { engineDef } from '../sim/train';
 import { goalChipHtml, openGoal, openScenarioEnd, openTitle } from './scenarios';
@@ -1111,7 +1112,10 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
       `<select name="${name}">${options.map((o) => `<option value="${o}"${o === value ? ' selected' : ''}>${o[0].toUpperCase() + o.slice(1)}</option>`).join('')}</select>`;
     const m = this.openModal(`
       <h2>New map</h2>
-      <form id="newgame">
+      <form id="newgame"><div class="ng-cols"><div>
+        <canvas class="ng-thumb" width="224" height="114" aria-hidden="true"></canvas>
+        <div class="row"><label>Map</label><select name="layout"><option value="">Random land</option>${MAPS.map((l) => `<option value="${l.id}"${l.id === p.layout ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div>
+        <p class="hint ng-desc"></p>
         <div class="row"><label for="ng-seed">Seed</label>
           <div class="seg"><input id="ng-seed" name="seed" value="${randomSeed()}" size="10" autocomplete="off" />
           <button type="button" class="btn" id="ng-dice">Random</button></div></div>
@@ -1120,37 +1124,64 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         <div class="row"><label>Terrain</label>${sel('hills', ['flat', 'normal', 'mountainous'], p.hills)}</div>
         <div class="row"><label>Forests</label>${sel('forests', ['few', 'normal', 'many'], p.forests)}</div>
         <div class="row"><label>Towns</label>${sel('cities', ['few', 'normal', 'many'], p.cities)}</div>
+        </div><div>
         <div class="row"><label>Economy</label>${sel('model', Object.keys(ECONOMY.models), this.game?.settings.model ?? ECONOMY.model)}</div>
         <div class="row"><label>Rivals</label>${sel('rivals', ['0', '1', '2', '3'], String(this.game?.settings.rivals ?? 2))}</div>
         <div class="row"><label>Rival skill</label>${sel('aiLevel', Object.keys(AI.levels), this.game?.settings.aiLevel ?? 'normal')}</div>
         <div class="row"><label>Rival attitude</label>${sel('friendly', ['ruthless', 'friendly'], this.game?.settings.friendlyAi ? 'friendly' : 'ruthless')}</div>
         <div class="row"><label>Territories</label>${sel('charters', ['charters', 'open'], this.game && !this.game.settings.charters ? 'open' : 'charters')}</div>
+        <div class="row"><label>Board votes</label>${sel('board', ['on', 'off'], this.game && this.game.settings.boardVotes === false ? 'off' : 'on')}</div>
         <div class="row"><label>Wrecks</label>${sel('wrecks', ['on', 'off'], this.game ? (this.game.settings.wrecks ? 'on' : 'off') : ECONOMY.wrecks.enabledByDefault ? 'on' : 'off')}</div>
         <div class="row"><label for="ng-year">Start year</label>
           <input id="ng-year" name="startYear" type="number" min="${MAPGEN.startYears[0]}" max="${MAPGEN.startYears[1]}" step="1" value="${p.startYear}" /></div>
+        </div></div>
         <div class="actions">
           <button type="button" class="btn" id="ng-cancel">Cancel</button>
           <button type="submit" class="btn primary">Survey land</button>
         </div>
-      </form>`);
+      </form>`, 'wide');
     const form = m.querySelector('form') as HTMLFormElement;
+    const field = (n: string) => form.elements.namedItem(n) as HTMLSelectElement | HTMLInputElement;
+    const readParams = (): MapParams => {
+      const fd = new FormData(form);
+      const year = Math.round(Number(fd.get('startYear')));
+      return {
+        seed: seedFromString(String(fd.get('seed') || '1')),
+        size: Number(fd.get('size')),
+        water: (fd.get('water') ?? field('water').value) as MapParams['water'],
+        hills: (fd.get('hills') ?? field('hills').value) as MapParams['hills'],
+        forests: fd.get('forests') as MapParams['forests'],
+        cities: (fd.get('cities') ?? field('cities').value) as MapParams['cities'],
+        startYear: Math.min(MAPGEN.startYears[1], Math.max(MAPGEN.startYears[0], Number.isFinite(year) ? year : 1850)),
+        ...(fd.get('layout') ? { layout: String(fd.get('layout')) } : {}),
+      };
+    };
+    // A hand-made map brings its own coast, hills and towns; size and the rest still apply.
+    let previewTimer = 0;
+    const preview = () => {
+      clearTimeout(previewTimer);
+      previewTimer = window.setTimeout(() => drawThumb(m.querySelector<HTMLCanvasElement>('.ng-thumb')!, readParams()), 250);
+    };
+    const syncLayout = (pickSize: boolean) => {
+      const layout = MAP_BY_ID.get(field('layout').value);
+      for (const n of ['water', 'hills', 'cities']) field(n).disabled = !!layout;
+      if (layout && pickSize) field('size').value = String(layout.size);
+      m.querySelector('.ng-desc')!.textContent = layout ? layout.desc : 'A new land drawn from the seed and these settings.';
+      preview();
+    };
+    field('layout').addEventListener('change', () => syncLayout(true));
+    form.addEventListener('change', (e) => (e.target as HTMLElement).getAttribute('name') !== 'layout' && preview());
+    syncLayout(false);
     (m.querySelector('#ng-dice') as HTMLElement).addEventListener('click', () => {
       (m.querySelector('#ng-seed') as HTMLInputElement).value = randomSeed();
+      preview();
     });
     (m.querySelector('#ng-cancel') as HTMLElement).addEventListener('click', () => this.closeModal());
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      const year = Math.round(Number(fd.get('startYear')));
-      const params: MapParams = {
-        seed: seedFromString(String(fd.get('seed') || randomSeed())),
-        size: Number(fd.get('size')),
-        water: fd.get('water') as MapParams['water'],
-        hills: fd.get('hills') as MapParams['hills'],
-        forests: fd.get('forests') as MapParams['forests'],
-        cities: fd.get('cities') as MapParams['cities'],
-        startYear: Math.min(MAPGEN.startYears[1], Math.max(MAPGEN.startYears[0], Number.isFinite(year) ? year : 1850)),
-      };
+      if (!fd.get('seed')) field('seed').value = randomSeed();
+      const params = readParams();
       const settings: Partial<GameSettings> = {
         model: fd.get('model') as EconomicModel,
         wrecks: fd.get('wrecks') === 'on',
@@ -1158,6 +1189,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         aiLevel: fd.get('aiLevel') as AiLevel,
         friendlyAi: fd.get('friendly') === 'friendly',
         charters: fd.get('charters') !== 'open',
+        boardVotes: fd.get('board') !== 'off',
       };
       this.closeModal();
       withLoading('Surveying the land…', () => this.newGame(params, settings));

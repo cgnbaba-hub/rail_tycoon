@@ -347,4 +347,20 @@ Coal for the Mills coal+iron+steel loads 150 / 350 / 650 (1870–1880);
 Bridge the Divide best yearly revenue $350k / $650k / $1M (1880–1892, the two largest towns
 connected); Robber Barons net-worth rank 2 / 1 / 1 + $4M (1885–1900, 3 ruthless rivals);
 Streamliner Age net worth $1.5M / $3M / $6M (1936–1950).
+On hand-made maps: River Towns book value $1.3M / $1.8M / $2.6M (1840–1850);
+Over the Pass best yearly revenue $350k / $650k / $1M (1858–1870, Wheatfield–Port Ashby);
+Black Gold oil+petroleum loads 1,500 / 3,000 / 5,000 (1895–1905);
+Lake Shore Line net worth $1.2M / $2.5M / $4.5M (1872–1887, Northshore–Southport);
+Commuter Rush passenger+mail loads 4,000 / 8,000 / 14,000 (1948–1958);
+Coast to Coast net-worth rank 2 / 1 / 1 + $6M (1866–1886, Bayview–Eastport, 3 ruthless rivals).
+
+Board votes are off in Tutorial, Iron Horse and River Towns.
+
+Checked with `scripts/scenario-bot.ts` (a plain scripted player: a fixed list of lines, single
+track, two trains per line, at most two bonds, board votes off). Its results by the deadline:
+River Towns $1.53M book value (bronze), Over the Pass $355k best year (bronze), Black Gold
+about 2,000–3,000 loads (bronze–silver; one oil line alone moves ~300 loads a year), Commuter
+Rush ~6,000 loads (bronze), Streamliner $1.9M (bronze), Iron Horse $1.06M and Bridge the
+Divide $265k (just short of bronze). Gold is meant to need a clearly better plan: double
+track, more lines, feeder routes and good timing on the stock market.
 

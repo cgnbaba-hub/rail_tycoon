@@ -168,3 +168,11 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] WebAudio chiptune: three procedural blues/bluegrass songs (bass, rhythm, improvised lead, drums) and synthesized effects (cash register, steam whistle, chuff, stock ticker, construction thud, bulldozer, alarm)
 - [x] Tests: save round-trip determinism, events, managers, roster, territories, scenarios, music composer
 
+## More scenarios & hand-made maps (after M8)
+
+- [x] Hand-made map format (`maps.json`, `src/sim/layout.ts`): sea edges, lakes, ridges, hills, plains, river valleys with meandering rivers, forest and desert areas; named towns (size, population, flattened ground), extra random towns, fixed industries (era-aware) and random fill
+- [x] Six maps: High Pass, Twin Rivers, Great Lake, Black Gold Basin, Coast to Coast (256²), Capital Region
+- [x] Six new scenarios on them (12 in all) with difficulty labels; requirements can name towns; tiers checked with a scripted player
+- [x] Scenario list with map previews (generated in a web worker), difficulty, map name and requirements; sandbox map picker with live preview; `?map=` URL parameter
+- [x] Board votes as a setting (off in the easy scenarios, switch in the new-map dialog); rivals widen their route range on sparse maps
+- [x] Tests: layouts (determinism, named towns, fixed industries, features, other sizes), every named requirement can be linked by rail, data validation

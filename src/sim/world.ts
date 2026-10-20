@@ -95,6 +95,8 @@ export interface MapParams {
   forests: 'few' | 'normal' | 'many';
   cities: 'few' | 'normal' | 'many';
   startYear: number;
+  /** Hand-made map (id in maps.json); the generator then follows its layout. */
+  layout?: string;
 }
 
 /**

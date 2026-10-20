@@ -109,7 +109,8 @@ export class AIBaron {
     if (budget < 150000) return;
     const towns = [...game.world.cities].sort((a, b) => b.population - a.population).slice(0, 24);
     const mine = this.myStations(game);
-    const [dMin, dMax] = P.routeTiles;
+    const dMin = P.routeTiles[0];
+    let dMax = P.routeTiles[1];
     type Cand = { key: string; score: number; a: City | Station; b: City };
     const cands: Cand[] = [];
     const dist = (ax: number, ay: number, bx: number, by: number) => Math.hypot(ax - bx, ay - by);
@@ -117,32 +118,37 @@ export class AIBaron {
     const comp = (city: City) => Math.pow(P.competition, this.rivalsIn(game, city));
     const day = game.day;
     const open = (key: string) => (this.tried.get(key) ?? -1) <= day;
-    // Grow the network from an existing station.
-    for (const st of mine) {
-      const home = game.world.cities[st.cityId];
-      if (!home) continue;
-      const [sx, sy] = [stopTile(st) % game.world.width, Math.floor(stopTile(st) / game.world.width)];
-      for (const t of towns) {
-        if (this.servedBy(game, t, this.companyId)) continue;
-        const d = dist(sx, sy, t.x, t.y);
-        if (d < dMin || d > dMax) continue;
-        const key = `s${st.id}-${t.id}`;
-        if (!open(key)) continue;
-        cands.push({ key, a: st, b: t, score: Math.sqrt(home.population * t.population) * weight(d) * comp(t) * 1.1 });
+    // Where towns lie far apart (hand-made maps), look further afield rather than not at all.
+    for (const stretch of [1, 1.5, 2, 2.6]) {
+      dMax = P.routeTiles[1] * stretch;
+      // Grow the network from an existing station.
+      for (const st of mine) {
+        const home = game.world.cities[st.cityId];
+        if (!home) continue;
+        const [sx, sy] = [stopTile(st) % game.world.width, Math.floor(stopTile(st) / game.world.width)];
+        for (const t of towns) {
+          if (this.servedBy(game, t, this.companyId)) continue;
+          const d = dist(sx, sy, t.x, t.y);
+          if (d < dMin || d > dMax) continue;
+          const key = `s${st.id}-${t.id}`;
+          if (!open(key)) continue;
+          cands.push({ key, a: st, b: t, score: Math.sqrt(home.population * t.population) * weight(d) * comp(t) * 1.1 });
+        }
       }
-    }
-    // Or start a new pair of towns.
-    for (let i = 0; i < towns.length; i++) {
-      for (let j = i + 1; j < towns.length; j++) {
-        const A = towns[i];
-        const B = towns[j];
-        if (this.servedBy(game, A, this.companyId) && this.servedBy(game, B, this.companyId)) continue;
-        const d = dist(A.x, A.y, B.x, B.y);
-        if (d < dMin || d > dMax) continue;
-        const key = `t${A.id}-${B.id}`;
-        if (!open(key)) continue;
-        cands.push({ key, a: A, b: B, score: Math.sqrt(A.population * B.population) * weight(d) * comp(A) * comp(B) });
+      // Or start a new pair of towns.
+      for (let i = 0; i < towns.length; i++) {
+        for (let j = i + 1; j < towns.length; j++) {
+          const A = towns[i];
+          const B = towns[j];
+          if (this.servedBy(game, A, this.companyId) && this.servedBy(game, B, this.companyId)) continue;
+          const d = dist(A.x, A.y, B.x, B.y);
+          if (d < dMin || d > dMax) continue;
+          const key = `t${A.id}-${B.id}`;
+          if (!open(key)) continue;
+          cands.push({ key, a: A, b: B, score: Math.sqrt(A.population * B.population) * weight(d) * comp(A) * comp(B) });
+        }
       }
+      if (cands.length) break;
     }
     if (!cands.length) return;
     cands.sort((x, y) => y.score - x.score);

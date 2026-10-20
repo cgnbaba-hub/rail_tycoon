@@ -1,5 +1,7 @@
-import { SCENARIOS, type ScenarioDef } from '../data';
+import { MAP_BY_ID, SCENARIOS, type ScenarioDef } from '../data';
 import { Game } from './game';
+import { defaultMapParams } from './mapgen';
+import type { MapParams } from './world';
 import { findTrainPath } from './routing';
 import { stopTile } from './train';
 
@@ -33,15 +35,25 @@ export function scenarioDef(id: string): ScenarioDef | undefined {
   return SCENARIOS.find((s) => s.id === id);
 }
 
+export function scenarioMapParams(def: ScenarioDef): MapParams {
+  const layout = def.map.layout ? MAP_BY_ID.get(def.map.layout) : undefined;
+  return { ...defaultMapParams(def.map.seed), ...(layout ? { size: layout.size } : {}), ...def.map };
+}
+
 /** Start a scenario game. */
 export function startScenario(def: ScenarioDef): Game {
-  const g = new Game({ ...def.map }, undefined, { rivals: 0, ...def.settings });
+  const g = new Game(scenarioMapParams(def), undefined, { rivals: 0, ...def.settings });
   const byPop = [...g.world.cities].sort((a, b) => b.population - a.population);
   // Requirement towns: by population rank, but the second one at least ~25 tiles away.
+  // Named towns (hand-made maps) are taken as they are.
   const towns: number[] = [];
+  const named = (n: string) => g.world.cities.find((c) => c.name === n);
   for (const r of def.requires) {
-    const a = byPop[r.a];
-    const far = byPop.slice(r.b).find((c) => c !== a && Math.hypot(c.x - a.x, c.y - a.y) >= Math.min(25, g.world.width / 3)) ?? byPop[r.b];
+    const a = typeof r.a === 'string' ? named(r.a) : byPop[r.a];
+    const far =
+      typeof r.b === 'string'
+        ? named(r.b)
+        : (byPop.slice(r.b).find((c) => c !== a && a && Math.hypot(c.x - a.x, c.y - a.y) >= Math.min(25, g.world.width / 3)) ?? byPop[r.b]);
     towns.push(a?.id ?? 0, far?.id ?? 0);
   }
   g.scenario = { id: def.id, deadlineYear: def.map.startYear + def.years, towns, best: 0, finished: false, medal: null };

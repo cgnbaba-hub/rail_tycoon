@@ -142,7 +142,7 @@ function detailHtml(game: Game, c: Company): string {
       ${row('Support if the vote were today', `<span class="${v.support < 0.5 ? 'bad' : v.warn ? 'warn' : 'good'}">${Math.round(v.support * 100)}%</span>`)}
       ${row('Public mood', `${Math.round(v.publicSupport * 100)}% for you`)}
       ${row('Votes of no confidence', v.strikes ? `<span class="bad">${v.strikes} — one more and you are out</span>` : 'none')}
-      <p class="hint">${v.held ? 'Every January the shareholders vote on you.' : `Votes start in ${game.params.startYear + AI.board.graceYears}.`} Your own shares count for you; the public follows the share price and profits${game.settings.friendlyAi ? '' : '; rival barons vote against you'}. Two failed votes in a row cost you the chair.</p>
+      <p class="hint">${game.settings.boardVotes === false ? 'In this scenario the shareholders never vote you out.' : v.held ? 'Every January the shareholders vote on you.' : `Votes start in ${game.params.startYear + AI.board.graceYears}.`} Your own shares count for you; the public follows the share price and profits${game.settings.friendlyAi ? '' : '; rival barons vote against you'}.${game.settings.boardVotes === false ? '' : ' Two failed votes in a row cost you the chair.'}</p>
       ${out && out.frac >= 0.1 ? `<p class="warnbox">${esc(holderName(game, out.key))} holds ${Math.round(out.frac * 100)}% of ${esc(c.name)}. At ${Math.round(AI.merger.minStake * 100)}% a rival can call a takeover vote.</p>` : ''}`;
   } else {
     const blocked = game.over ? 'You no longer run a railroad.' : mergerBlocker(game, me, c, game.chairman);
