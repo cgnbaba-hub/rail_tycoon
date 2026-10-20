@@ -222,6 +222,6 @@ export function boardVote(game: Game, c: Company): BoardVote {
     else if (game.settings.friendlyAi) support += f * publicSupport;
     // Hostile rival barons vote against.
   }
-  const held = game.year - game.params.startYear >= B.graceYears;
+  const held = game.settings.boardVotes !== false && game.year - game.params.startYear >= B.graceYears;
   return { held, support, publicSupport, warn: support < B.warnBelow, strikes: c.boardStrikes };
 }

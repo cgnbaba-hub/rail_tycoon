@@ -1,11 +1,15 @@
 import {
   BUILDINGS,
   INDUSTRIES,
+  INDUSTRY_BY_ID,
+  MAP_BY_ID,
   MAPGEN,
   NAMES,
   type BuildingDef,
   type IndustryDef,
+  type MapLayoutDef,
 } from '../data';
+import { TOWN_SIZES, layoutDesert, layoutHeights, layoutMoisture, layoutRivers } from './layout';
 import { fbm } from './noise';
 import { Rng, hashFloat } from './rng';
 import {
@@ -30,12 +34,27 @@ export function generateWorld(params: MapParams): World {
   const size = params.size;
   const world = new World(size, size, MAPGEN.maxHeight);
   const rng = new Rng(params.seed);
-  generateHeights(world, params, rng.fork(1));
-  classifyWater(world);
-  generateRivers(world, rng.fork(2));
-  classifyTerrain(world, params);
-  placeCities(world, params, rng.fork(3));
-  placeIndustries(world, params, rng.fork(4));
+  const layout = params.layout ? MAP_BY_ID.get(params.layout) : undefined;
+  if (params.layout && !layout) throw new Error(`Unknown map ${params.layout}`);
+  if (layout) {
+    layoutHeights(world, layout, rng.fork(1));
+    enforceLipschitz(world);
+    classifyWater(world);
+    layoutRivers(world, layout, params.seed);
+    generateRivers(world, rng.fork(2), layout.rivers ?? 0);
+    classifyTerrain(world, params, layout);
+    placeLayoutTowns(world, layout, rng.fork(3));
+    placeCities(world, params, rng.fork(5), layout.extraTowns ?? 0, 1);
+    placeLayoutIndustries(world, layout, params, rng.fork(6));
+    placeIndustries(world, params, rng.fork(4), layout.randomIndustries ?? 1);
+  } else {
+    generateHeights(world, params, rng.fork(1));
+    classifyWater(world);
+    generateRivers(world, rng.fork(2));
+    classifyTerrain(world, params);
+    placeCities(world, params, rng.fork(3));
+    placeIndustries(world, params, rng.fork(4));
+  }
   flattenFootprints(world);
   world.revision++;
   return world;
@@ -152,11 +171,11 @@ const DIRS4: ReadonlyArray<[number, number]> = [
   [0, -1],
 ];
 
-function generateRivers(world: World, rng: Rng): void {
+function generateRivers(world: World, rng: Rng, fixedCount?: number): void {
   const W = world.width;
   const H = world.height;
   const cfg = MAPGEN.rivers;
-  const count = Math.round((cfg.perTenThousandTiles * W * H) / 10000);
+  const count = fixedCount ?? Math.round((cfg.perTenThousandTiles * W * H) / 10000);
   const minSource = cfg.minSourceHeight * world.maxHeight;
   let made = 0;
   for (let attempt = 0; attempt < count * 30 && made < count; attempt++) {
@@ -209,7 +228,7 @@ function traceRiver(world: World, sx: number, sy: number, rng: Rng, maxLen: numb
 // Biomes
 // ---------------------------------------------------------------------------------------
 
-function classifyTerrain(world: World, params: MapParams): void {
+function classifyTerrain(world: World, params: MapParams, layout?: MapLayoutDef): void {
   const W = world.width;
   const H = world.height;
   const maxH = world.maxHeight;
@@ -227,6 +246,14 @@ function classifyTerrain(world: World, params: MapParams): void {
       const river = (world.flags[i] & F.River) !== 0;
       let moisture = fbm(x * m.scale, y * m.scale, moistSeed, opts);
       if (river || nearFlag(world, x, y, F.River, 2)) moisture += 0.08;
+      if (layout) {
+        const S = Math.max(W, H);
+        moisture += layoutMoisture(layout, x, y, S);
+        if (avg < MAPGEN.rockHeight * maxH && layoutDesert(layout, x, y, S, hashFloat(x >> 1, y >> 1, params.seed ^ 0x77))) {
+          world.terrain[i] = T.Sand;
+          continue;
+        }
+      }
       if (minH === 0 && maxT <= MAPGEN.beachMaxHeight && nearWater(world, x, y, 1)) {
         world.terrain[i] = T.Sand;
       } else if (avg >= MAPGEN.snowHeight * maxH) {
@@ -280,11 +307,13 @@ function buildable(world: World, x: number, y: number): boolean {
 // Cities
 // ---------------------------------------------------------------------------------------
 
-function placeCities(world: World, params: MapParams, rng: Rng): void {
+/** Random towns; `count` and `maxClass` override the density setting (hand-made maps). */
+function placeCities(world: World, params: MapParams, rng: Rng, count?: number, maxClass?: number): void {
   const W = world.width;
   const H = world.height;
   const cfg = MAPGEN.cities;
-  const target = Math.max(2, Math.round((cfg.perTenThousandTiles[params.cities] * W * H) / 10000));
+  const target = count ?? Math.max(2, Math.round((cfg.perTenThousandTiles[params.cities] * W * H) / 10000));
+  if (target <= 0) return;
   const spacing = cfg.minSpacing;
   const maxH = cfg.maxHeightFraction * world.maxHeight;
 
@@ -310,32 +339,67 @@ function placeCities(world: World, params: MapParams, rng: Rng): void {
   const keyed = cands.map((c) => ({ c, k: Math.pow(rng.next(), 1 / c.score) }));
   keyed.sort((a, b) => b.k - a.k);
 
-  const usedNames = new Set<string>();
+  const usedNames = new Set<string>(world.cities.map((c) => c.name));
   const chosen: Cand[] = [];
   for (const { c } of keyed) {
     if (chosen.length >= target) break;
     if (chosen.some((o) => World.dist(o.x, o.y, c.x, c.y) < spacing)) continue;
+    if (world.cities.some((o) => World.dist(o.x, o.y, c.x, c.y) < spacing + o.radius)) continue;
     chosen.push(c);
   }
 
   const classes = cfg.classes;
-  const classIdx = chosen.map(() => classes.indexOf(rng.weighted(classes, (k) => k.weight)));
+  const pool = classes.slice(0, (maxClass ?? classes.length - 1) + 1);
+  const classIdx = chosen.map(() => classes.indexOf(rng.weighted(pool, (k) => k.weight)));
   // Cap the biggest class by map area, and guarantee at least one proper city.
   const maxTop = Math.max(1, Math.floor((W * H) / cfg.areaPerMetropolis));
   let tops = 0;
   for (let i = 0; i < classIdx.length; i++) {
     if (classIdx[i] === classes.length - 1 && ++tops > maxTop) classIdx[i] = classes.length - 2;
   }
-  if (chosen.length >= 3 && !classIdx.some((k) => k >= 2)) classIdx[0] = 2;
+  if (maxClass === undefined && chosen.length >= 3 && !classIdx.some((k) => k >= 2)) classIdx[0] = 2;
 
   chosen.forEach((c, i) => {
     const cls = classes[classIdx[i]];
-    const population = rng.int(cls.popMin, cls.popMax);
+    // Random towns on hand-made maps stay modest next to the named ones.
+    const population = maxClass === undefined ? rng.int(cls.popMin, cls.popMax) : rng.int(cls.popMin, Math.round((cls.popMin + cls.popMax) / 2));
     const name = makeCityName(rng, usedNames, c.coastal, c.river, c.hilly, classIdx[i]);
     const city: City = { id: world.cities.length, name, x: c.x, y: c.y, population, classIndex: classIdx[i], radius: 1, buildingIds: [] };
     world.cities.push(city);
     growCity(world, city, Math.ceil(population / cls.peoplePerBuilding), rng);
   });
+}
+
+/** The named towns of a hand-made map, each on the nearest good spot to its position. */
+function placeLayoutTowns(world: World, layout: MapLayoutDef, rng: Rng): void {
+  const classes = MAPGEN.cities.classes;
+  for (const t of layout.towns) {
+    const classIndex = Math.max(0, TOWN_SIZES.indexOf(t.size));
+    const cls = classes[classIndex];
+    const tx = Math.round(t.x * world.width);
+    const ty = Math.round(t.y * world.height);
+    let best: [number, number] | null = null;
+    let bestScore = -Infinity;
+    for (let dy = -10; dy <= 10; dy++) {
+      for (let dx = -10; dx <= 10; dx++) {
+        const x = tx + dx;
+        const y = ty + dy;
+        if (x < 3 || y < 3 || x >= world.width - 3 || y >= world.height - 3 || !buildable(world, x, y)) continue;
+        let flat = 0;
+        for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) if (buildable(world, x + ox, y + oy)) flat++;
+        const score = Math.min(flat, 16) * 2 - Math.hypot(dx, dy);
+        if (score > bestScore) {
+          bestScore = score;
+          best = [x, y];
+        }
+      }
+    }
+    if (!best) continue;
+    const population = t.pop ?? rng.int(cls.popMin, cls.popMax);
+    const city: City = { id: world.cities.length, name: t.name, x: best[0], y: best[1], population, classIndex, radius: 1, buildingIds: [] };
+    world.cities.push(city);
+    growCity(world, city, Math.ceil(population / cls.peoplePerBuilding), rng);
+  }
 }
 
 function makeCityName(rng: Rng, used: Set<string>, coastal: boolean, river: boolean, hilly: boolean, cls: number): string {
@@ -450,10 +514,11 @@ function growCity(world: World, city: City, nBuildings: number, rng: Rng): void 
 // Industries
 // ---------------------------------------------------------------------------------------
 
-function placeIndustries(world: World, params: MapParams, rng: Rng): void {
+function placeIndustries(world: World, params: MapParams, rng: Rng, density = 1): void {
+  if (density <= 0) return;
   let land = 0;
   for (let i = 0; i < world.terrain.length; i++) if (world.terrain[i] !== T.Water) land++;
-  const scale = MAPGEN.industries.densityScale;
+  const scale = MAPGEN.industries.densityScale * density;
   for (const def of INDUSTRIES) {
     if (params.startYear < def.era[0] || params.startYear > def.era[1]) continue;
     const expected = (def.density * land * scale) / 10000;
@@ -464,31 +529,62 @@ function placeIndustries(world: World, params: MapParams, rng: Rng): void {
       const x = rng.int(1, world.width - 1 - def.size[0]);
       const y = rng.int(1, world.height - 1 - def.size[1]);
       if (!canPlaceIndustry(world, def, x, y)) continue;
-      const city = world.nearestCity(x + def.size[0] / 2, y + def.size[1] / 2);
-      const id = world.industries.length;
-      world.industries.push({
-        id,
-        defId: def.id,
-        name: city ? `${city.name} ${def.name}` : def.name,
-        x,
-        y,
-        w: def.size[0],
-        h: def.size[1],
-        cityId: city ? city.id : -1,
-      });
-      for (let dy = 0; dy < def.size[1]; dy++) {
-        for (let dx = 0; dx < def.size[0]; dx++) {
-          const ti = world.tileIndex(x + dx, y + dy);
-          world.occupant[ti] = encodeOccupant(OCC_INDUSTRY, id);
-          world.flags[ti] &= ~F.Tree;
-        }
-      }
+      addIndustry(world, def, x, y);
       placed++;
     }
   }
 }
 
-export function canPlaceIndustry(world: World, def: IndustryDef, x: number, y: number): boolean {
+function addIndustry(world: World, def: IndustryDef, x: number, y: number): void {
+  const city = world.nearestCity(x + def.size[0] / 2, y + def.size[1] / 2);
+  const id = world.industries.length;
+  world.industries.push({
+    id,
+    defId: def.id,
+    name: city ? `${city.name} ${def.name}` : def.name,
+    x,
+    y,
+    w: def.size[0],
+    h: def.size[1],
+    cityId: city ? city.id : -1,
+  });
+  for (let dy = 0; dy < def.size[1]; dy++) {
+    for (let dx = 0; dx < def.size[0]; dx++) {
+      const ti = world.tileIndex(x + dx, y + dy);
+      world.occupant[ti] = encodeOccupant(OCC_INDUSTRY, id);
+      world.flags[ti] &= ~F.Tree;
+      if (world.terrain[ti] === T.Snow) world.terrain[ti] = T.Rough;
+    }
+  }
+}
+
+/**
+ * The fixed industries of a hand-made map: the nearest spot that fits the usual rules, else
+ * the nearest flat free spot at all (the author asked for it there).
+ */
+function placeLayoutIndustries(world: World, layout: MapLayoutDef, params: MapParams, rng: Rng): void {
+  for (const spec of layout.industries ?? []) {
+    const def = INDUSTRY_BY_ID.get(spec.type);
+    if (!def || params.startYear < def.era[0] || params.startYear > def.era[1]) continue;
+    const cx = Math.round(spec.x * world.width - def.size[0] / 2);
+    const cy = Math.round(spec.y * world.height - def.size[1] / 2);
+    const spots: Array<[number, number, number]> = [];
+    for (let dy = -12; dy <= 12; dy++) {
+      for (let dx = -12; dx <= 12; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 1 || y < 1 || x + def.size[0] >= world.width || y + def.size[1] >= world.height) continue;
+        spots.push([x, y, Math.hypot(dx, dy) + rng.next() * 0.01]);
+      }
+    }
+    spots.sort((a, b) => a[2] - b[2]);
+    const spot = spots.find(([x, y]) => canPlaceIndustry(world, def, x, y)) ?? spots.find(([x, y]) => canPlaceIndustry(world, def, x, y, true));
+    if (spot) addIndustry(world, def, spot[0], spot[1]);
+  }
+}
+
+/** `relaxed`: only the footprint must be flat, free and dry (terrain, height and distance rules ignored). */
+export function canPlaceIndustry(world: World, def: IndustryDef, x: number, y: number, relaxed = false): boolean {
   const [w, h] = def.size;
   const p = def.placement;
   const allowed = p.terrain.map(terrainIdFromName);
@@ -500,7 +596,7 @@ export function canPlaceIndustry(world: World, def: IndustryDef, x: number, y: n
       const tx = x + dx;
       const ty = y + dy;
       if (!buildable(world, tx, ty)) return false;
-      if (!allowed.includes(world.terrainAt(tx, ty) as never)) return false;
+      if (!relaxed && !allowed.includes(world.terrainAt(tx, ty) as never)) return false;
       const c = world.corners(tx, ty);
       for (const v of c) {
         minH = Math.min(minH, v);
@@ -510,21 +606,12 @@ export function canPlaceIndustry(world: World, def: IndustryDef, x: number, y: n
     }
   }
   if (maxH - minH > 1) return false;
+  if (relaxed) return gapFree(world, x, y, w, h);
   const avg = sum / (w * h) / world.maxHeight;
   if (p.minHeight !== undefined && avg < p.minHeight) return false;
   if (p.maxHeight !== undefined && avg > p.maxHeight) return false;
 
-  // Keep a gap to other occupants (cities, industries) and roads.
-  const gap = MAPGEN.industries.minGap;
-  for (let dy = -gap; dy < h + gap; dy++) {
-    for (let dx = -gap; dx < w + gap; dx++) {
-      const tx = x + dx;
-      const ty = y + dy;
-      if (!world.inBounds(tx, ty)) continue;
-      const i = world.tileIndex(tx, ty);
-      if (world.occupant[i] !== 0 || (world.flags[i] & F.Road) !== 0) return false;
-    }
-  }
+  if (!gapFree(world, x, y, w, h)) return false;
 
   const cx = x + w / 2;
   const cy = y + h / 2;
@@ -538,6 +625,21 @@ export function canPlaceIndustry(world: World, def: IndustryDef, x: number, y: n
     if (d < p.nearCity[0] || d > p.nearCity[1]) return false;
   } else if (city && World.dist(cx, cy, city.x, city.y) < city.radius + 3) {
     return false;
+  }
+  return true;
+}
+
+/** Keep a gap to other occupants (cities, industries) and roads. */
+function gapFree(world: World, x: number, y: number, w: number, h: number): boolean {
+  const gap = MAPGEN.industries.minGap;
+  for (let dy = -gap; dy < h + gap; dy++) {
+    for (let dx = -gap; dx < w + gap; dx++) {
+      const tx = x + dx;
+      const ty = y + dy;
+      if (!world.inBounds(tx, ty)) continue;
+      const i = world.tileIndex(tx, ty);
+      if (world.occupant[i] !== 0 || (world.flags[i] & F.Road) !== 0) return false;
+    }
   }
   return true;
 }

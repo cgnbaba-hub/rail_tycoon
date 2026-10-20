@@ -20,7 +20,7 @@ describe('data files', () => {
   });
 
   it('have sane clock and mapgen settings', () => {
-    expect(TIME.speeds).toEqual([1, 2, 4, 8]);
+    expect(TIME.speeds).toEqual([1, 2, 5, 15]);
     expect(MAPGEN.sizes).toContain(256);
     expect(MAPGEN.maxHeight).toBeLessThan(64);
   });

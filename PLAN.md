@@ -41,8 +41,8 @@ tests/      Vitest specs for sim + pure render math
 | M4 | Economy ✅ | Industry production chains, station supply/demand with saturation + recovery, 3 economic models, city growth, 5-state economic cycle with leading indicators, station improvements (water tower, hotel, …). |
 | M5 | Finance ✅ | Books (income statement, balance sheet), bonds, dividends, share issue/buyback/split, personal portfolio, margin/short, stock price model, year-end report. |
 | M6 | AI & takeovers ✅ | 1–3 AI barons with personalities (builders + speculators), mergers, bankruptcy, board votes. |
-| M7 | Improved UI | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
-| M8 | Content & polish | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
+| M7 | Improved UI ✅ | Overlays/heat maps, supply-chain explorer, sortable train table w/ bulk actions, advisor feed, stats graphs, formula tooltips, route templates. |
+| M8 | Content & polish ✅ | Full engine roster across eras, events, managers, territories/goodwill, 3–5 scenarios with medals, tutorial, WebAudio chiptune + SFX, save/load (+JSON export), settings, accessibility options. |
 
 Every milestone: `npm test` green, `npm run build` green, commit, short summary.
 
@@ -142,3 +142,44 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] UI: new-game options (rivals 0–3, skill, attitude), Railroads window (`O`: companies, chairmen, prices, book value, profit, stakes, ownership pies, takeover vote preview, board confidence), trade any company from the portfolio, rival colours (station roofs and labels, minimap track), owner in the inspector, read-only rival trains, rival news and warnings, board vote in the year-end report, game-over dialog
 - [x] Tests: founding of rivals, ownership rules, billing, undo isolation, AI determinism and building, friendly mode, merger rules/vote/execution/cooldown, takeover of the player, bankruptcy (direct and after insolvency, player game over), board vote and removal after two strikes
 
+## M7 detailed checklist
+
+- [x] Monthly statistics (revenue by cargo, net profit, share price, market and book value per company; everyone's net worth; profit per train and revenue per station), 20 years kept
+- [x] Per-train load factor (moving average at departure), 12-month profit history, per-tile traffic, route profit and congestion counters that fade monthly
+- [x] Map overlays (`J`): supply and demand per cargo (station-size catchment), town growth, station catchment, route profit, traffic, congestion, gradient — pixel-exact ordered-dither heat maps with a legend; colour-blind-safe ramps (light blue → red, orange ↔ blue) and dither density that grows with the value
+- [x] Supply-chain explorer (`Y`): the cargo chains of this map as a diagram; clicking a cargo shows its supply overlay and outlines producers (solid) and users (dashed)
+- [x] Advisor (`U`, badge on the rail): waiting cargo, idle stations, saturated demand, stuck/unrouted/low-load/loss-making/worn-out trains, low cash, bad rating, margin, rival stakes, board support, confidence swings; dismissable and filterable; news log; delivery list with the full revenue formula; "Show" jumps to the train/station/company
+- [x] Train table: sortable by profit/yr, age, reliability, load, last year, last breakdown; checkboxes and quick selections (worn out, > 25 years, losing, low load); bulk upgrade, sell and re-route
+- [x] Route templates: save a train's engine, cars and route; buy copies (also reversed) from the train table or start the new-train dialog from one; apply a template's route to many trains
+- [x] Statistics screen (`K`): revenue by cargo (stacked), profit, per-train and per-station sparklines, market value of all railroads, net worth of you vs. the barons (dash patterns + colours)
+- [x] Formula tooltips: share price (fair-value formula), net worth, company cash (revenue − costs), demand gauges (saturation and recovery), multi-line pixel tooltips everywhere instead of browser titles
+- [x] Tests: statistics add up to the books, monthly train profit and load factor, window sums, supply/demand/traffic/profit/congestion/gradient/catchment fields, advisor rules and ordering, templates (incl. reversed), fleet selection and bulk upgrade/sell
+
+## M8 detailed checklist
+
+- [x] Save games: snapshot of the whole game graph (a loaded game continues exactly like the saved one), slots in IndexedDB with a localStorage fallback, quick save (Ctrl+S), autosave every N months, export / import as JSON
+- [x] Settings: music / effects volume, mute, interface size, reduced motion, contextual hints, year-end report, autosave interval
+- [x] Engine roster: 26 fictional engines from 1830 to 2000 (early steam, heavy freight, articulateds, fast passenger steam, diesel switchers, road diesels, gas turbine, high-speed diesel)
+- [x] Historical-flavoured events with spelled-out effects (war, gold rush, oil boom, strikes, harvests, building boom, epidemic) and one-off technologies (air brakes, steel rails, standard time, refrigerated cars)
+- [x] Managers: a few candidates each year, one at a time, salary and signing fee, effects on construction, breakdowns, upkeep, fuel, interest, revenue or goodwill
+- [x] Territories: named regions, goodwill per region (service, revenue, demolition, wrecks), construction cost scaled by goodwill, charters (by goodwill or fee) for restricted regions, rivals kept out; territories overlay and inspector
+- [x] Scenarios with bronze/silver/gold medals (6 incl. the tutorial), title screen, goal chip and window, result screen, medals remembered
+- [x] Interactive tutorial (9 steps completed by doing them, tool highlighted) and one-time contextual hints
+- [x] WebAudio chiptune: three procedural blues/bluegrass songs (bass, rhythm, improvised lead, drums) and synthesized effects (cash register, steam whistle, chuff, stock ticker, construction thud, bulldozer, alarm)
+- [x] Tests: save round-trip determinism, events, managers, roster, territories, scenarios, music composer
+
+## More scenarios & hand-made maps (after M8)
+
+- [x] Hand-made map format (`maps.json`, `src/sim/layout.ts`): sea edges, lakes, ridges, hills, plains, river valleys with meandering rivers, forest and desert areas; named towns (size, population, flattened ground), extra random towns, fixed industries (era-aware) and random fill
+- [x] Six maps: High Pass, Twin Rivers, Great Lake, Black Gold Basin, Coast to Coast (256²), Capital Region
+- [x] Six new scenarios on them (12 in all) with difficulty labels; requirements can name towns; tiers checked with a scripted player
+- [x] Scenario list with map previews (generated in a web worker), difficulty, map name and requirements; sandbox map picker with live preview; `?map=` URL parameter
+- [x] Board votes as a setting (off in the easy scenarios, switch in the new-map dialog); rivals widen their route range on sparse maps
+- [x] Tests: layouts (determinism, named towns, fixed industries, features, other sizes), every named requirement can be linked by rail, data validation
+
+## Transfers & passenger destinations (spec optional features 17 and 18)
+
+- [x] Transfer order per route stop: loads set down as lots (first station, loading time, destination, carrying trains); picked up by trains that can place them, never by the train that set them down; paid on final delivery over the whole distance and time; revenue split between trains by distance; lots spoil after half a year
+- [x] Passenger/mail destinations (new-map toggle): station links from train routes, destinations within one change weighted by people and distance, per-destination waiting buckets, boarding only towards reachable destinations, automatic change of trains at connecting stations
+- [x] UI: transfer checkbox in the route editor and route list, "via transfer" in delivery formulas, station panel lists travellers by destination and loads waiting to transfer, train panel shows who is bound where
+- [x] Tests: transfer delivery and payment over the full distance, revenue split, no hand-back, spoiling, save round-trip; destinations off by default, shares, change of trains at a hub, no journeys without a train

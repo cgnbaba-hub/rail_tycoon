@@ -88,6 +88,16 @@
     "graceDays": 2,
     "minFactor": 0.25
   },
+  "transfers": {
+    "_doc": "Cargo dropped at a transfer stop waits for another train: at most maxLots per station, lots older than maxDays are lost. Payment comes on delivery (distance from the original origin, total time) and is split between the trains by the distance each carried it.",
+    "maxLots": 300,
+    "maxDays": 180
+  },
+  "destinations": {
+    "_doc": "Optional passenger/mail destinations: new travellers pick a station reachable with at most one change, weighted by the people it serves / (1 + distance / distanceScale tiles).",
+    "cargos": ["passengers", "mail"],
+    "distanceScale": 60
+  },
   "loading": {
     "hoursPerLoad": 3,
     "minDwellHours": 4,

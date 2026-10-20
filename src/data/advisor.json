@@ -1,0 +1,14 @@
+{
+  "_doc": "Thresholds for the advisor feed (see BALANCING.md). Loads = car loads; ratios are 0–1.",
+  "waitingLoads": 12,
+  "lowLoadFactor": 0.3,
+  "minDepartures": 4,
+  "losingMonths": 6,
+  "signalWaitDays": 10,
+  "saturatedDemand": 0.5,
+  "lowCash": 50000,
+  "badRatingIndex": 5,
+  "rivalStakeNotice": 0.1,
+  "confidenceDrop": 8,
+  "maxItems": 40
+}

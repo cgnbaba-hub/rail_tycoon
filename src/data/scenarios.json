@@ -1,0 +1,148 @@
+{
+  "_doc": "Scenarios (fictional). map = map parameters (missing ones take the defaults; layout = a hand-made map from maps.json, which brings its own size); settings = game settings; goal.metric: bookValue | netWorth | bestYearRevenue | cargoLoads (with cargos) | rank (net-worth rank among all investors, lower is better). tiers = [bronze, silver, gold] thresholds. requires = conditions every medal needs (connect = your own track between two towns, by population rank or by name on hand-made maps). years = time limit from the start year; reaching gold earlier ends the scenario early. See BALANCING.md. difficulty = easy | medium | hard (shown in the list). settings.boardVotes = false: the shareholders never vote you out (easy scenarios).",
+  "scenarios": [
+    {
+      "id": "tutorial",
+      "name": "Tutorial: First Spike",
+      "tutorial": true,
+      "difficulty": "easy",
+      "brief": "Learn the ropes: connect two towns, run a train and earn your first fortune. Step-by-step help guides you.",
+      "map": { "seed": 1851, "size": 64, "water": "low", "hills": "flat", "forests": "few", "cities": "few", "startYear": 1850 },
+      "settings": { "rivals": 0, "model": "basic", "charters": false, "wrecks": false, "boardVotes": false },
+      "years": 3,
+      "goal": { "metric": "bestYearRevenue", "label": "Best yearly revenue", "tiers": [60000, 120000, 200000] },
+      "requires": [
+        { "type": "connect", "a": 0, "b": 1 }
+      ]
+    },
+    {
+      "id": "iron_horse",
+      "name": "The Iron Horse",
+      "difficulty": "easy",
+      "brief": "1835: the first railways are a curiosity. Build a profitable little line and grow the company's book value before 1845.",
+      "map": { "seed": 1835, "size": 128, "water": "normal", "hills": "normal", "forests": "normal", "cities": "normal", "startYear": 1835 },
+      "settings": { "rivals": 0, "model": "basic", "charters": false, "boardVotes": false },
+      "years": 10,
+      "goal": { "metric": "bookValue", "label": "Company book value", "tiers": [1300000, 1800000, 2600000] },
+      "requires": []
+    },
+    {
+      "id": "river_towns",
+      "name": "River Towns",
+      "difficulty": "easy",
+      "brief": "1840: the valley towns of Twin Rivers trade by barge and cart. Give them a railway and build up the company's book value by 1850.",
+      "map": { "seed": 1840, "startYear": 1840, "layout": "twin_rivers", "forests": "normal" },
+      "settings": { "rivals": 0, "model": "basic", "charters": false, "boardVotes": false },
+      "years": 10,
+      "goal": { "metric": "bookValue", "label": "Company book value", "tiers": [1300000, 1800000, 2600000] },
+      "requires": []
+    },
+    {
+      "id": "coal_steel",
+      "name": "Coal for the Mills",
+      "difficulty": "medium",
+      "brief": "1870: the steel mills are hungry. Haul coal, iron and steel — deliver as many loads as you can by 1880. One friendly rival competes for the towns.",
+      "map": { "seed": 1870, "size": 128, "water": "low", "hills": "normal", "forests": "normal", "cities": "normal", "startYear": 1870 },
+      "settings": { "rivals": 1, "aiLevel": "normal", "friendlyAi": true, "model": "advanced", "charters": true },
+      "years": 10,
+      "goal": { "metric": "cargoLoads", "cargos": ["coal", "iron", "steel"], "label": "Coal, iron & steel delivered (loads)", "tiers": [150, 350, 650] },
+      "requires": []
+    },
+    {
+      "id": "over_the_pass",
+      "name": "Over the Pass",
+      "difficulty": "medium",
+      "brief": "1858: Wheatfield's grain rots for want of a way to the coast. Drive a line over the High Pass to Port Ashby and make it pay before 1870. A rival has the same idea.",
+      "map": { "seed": 1858, "startYear": 1858, "layout": "high_pass" },
+      "settings": { "rivals": 1, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 12,
+      "goal": { "metric": "bestYearRevenue", "label": "Best yearly revenue", "tiers": [350000, 650000, 1000000] },
+      "requires": [
+        { "type": "connect", "a": "Wheatfield", "b": "Port Ashby" }
+      ]
+    },
+    {
+      "id": "black_gold",
+      "name": "Black Gold",
+      "difficulty": "medium",
+      "brief": "1895: oil gushes from the sands of the basin. Haul crude to the coastal refineries and petroleum to the towns — as many loads as you can by 1905.",
+      "map": { "seed": 1895, "startYear": 1895, "layout": "oil_basin" },
+      "settings": { "rivals": 1, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 10,
+      "goal": { "metric": "cargoLoads", "cargos": ["oil", "petroleum"], "label": "Oil & petroleum delivered (loads)", "tiers": [1500, 3000, 5000] },
+      "requires": []
+    },
+    {
+      "id": "divide",
+      "name": "Bridge the Divide",
+      "difficulty": "medium",
+      "brief": "1880: the two largest towns lie far apart across rough country. Link them with your own track and make the railroad pay before 1892.",
+      "map": { "seed": 1880, "size": 128, "water": "high", "hills": "mountainous", "forests": "normal", "cities": "few", "startYear": 1880 },
+      "settings": { "rivals": 1, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 12,
+      "goal": { "metric": "bestYearRevenue", "label": "Best yearly revenue", "tiers": [350000, 650000, 1000000] },
+      "requires": [
+        { "type": "connect", "a": 0, "b": 1 }
+      ]
+    },
+    {
+      "id": "lake_shore",
+      "name": "Lake Shore Line",
+      "difficulty": "medium",
+      "brief": "1872: the towns around the Great Lake still trade by steamer. Link Northshore and Southport by rail, outbuild two rivals and grow your own fortune by 1887.",
+      "map": { "seed": 1872, "startYear": 1872, "layout": "great_lake" },
+      "settings": { "rivals": 2, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 15,
+      "goal": { "metric": "netWorth", "label": "Your personal net worth", "tiers": [1200000, 2500000, 4500000] },
+      "requires": [
+        { "type": "connect", "a": "Northshore", "b": "Southport" }
+      ]
+    },
+    {
+      "id": "streamliner",
+      "name": "Streamliner Age",
+      "difficulty": "medium",
+      "brief": "1936: sleek diesels promise speed. Build a fast passenger network and reach the biggest net worth you can before 1950.",
+      "map": { "seed": 1936, "size": 192, "water": "normal", "hills": "normal", "forests": "few", "cities": "many", "startYear": 1936 },
+      "settings": { "rivals": 2, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 14,
+      "goal": { "metric": "netWorth", "label": "Your personal net worth", "tiers": [1500000, 3000000, 6000000] },
+      "requires": []
+    },
+    {
+      "id": "commuter_rush",
+      "name": "Commuter Rush",
+      "difficulty": "medium",
+      "brief": "1948: the suburbs of Capitol City boom and everyone needs to get downtown. Carry the most passengers and mail by 1958 — two rivals want the same commuters.",
+      "map": { "seed": 1948, "startYear": 1948, "layout": "capital" },
+      "settings": { "rivals": 2, "aiLevel": "normal", "model": "advanced", "charters": true },
+      "years": 10,
+      "goal": { "metric": "cargoLoads", "cargos": ["passengers", "mail"], "label": "Passengers & mail carried (loads)", "tiers": [4000, 8000, 14000] },
+      "requires": []
+    },
+    {
+      "id": "barons",
+      "name": "Robber Barons",
+      "difficulty": "hard",
+      "brief": "1885: three ruthless barons want the country for themselves. Outplay them on the rails and on the stock market: be the richest by 1900.",
+      "map": { "seed": 1885, "size": 192, "water": "normal", "hills": "normal", "forests": "normal", "cities": "many", "startYear": 1885 },
+      "settings": { "rivals": 3, "aiLevel": "ruthless", "friendlyAi": false, "model": "expert", "charters": true },
+      "years": 15,
+      "goal": { "metric": "rank", "label": "Your net-worth rank", "tiers": [2, 1, 1], "goldNetWorth": 4000000 },
+      "requires": []
+    },
+    {
+      "id": "coast_to_coast",
+      "name": "Coast to Coast",
+      "difficulty": "hard",
+      "brief": "1866: the great race. Join Bayview on the western ocean to Eastport on the eastern one with your own rails, and end up the richest baron on the continent by 1886.",
+      "map": { "seed": 1866, "startYear": 1866, "layout": "coast_to_coast" },
+      "settings": { "rivals": 3, "aiLevel": "ruthless", "friendlyAi": false, "model": "expert", "charters": true },
+      "years": 20,
+      "goal": { "metric": "rank", "label": "Your net-worth rank", "tiers": [2, 1, 1], "goldNetWorth": 6000000 },
+      "requires": [
+        { "type": "connect", "a": "Bayview", "b": "Eastport" }
+      ]
+    }
+  ]
+}

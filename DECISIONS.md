@@ -215,3 +215,89 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   label rules in their colour, the minimap draws rival track in their colour; track itself is
   not recoloured on the main map to keep the strict palette readable.
 
+## Insight tools (M7)
+- **Statistics are sampled, not reconstructed:** at each month end the game stores one small
+  sample (per company, per investor, per train, per station). Revenue uses "since last
+  sample" accumulators, so the yearly resets of the books can never double-count or drop a
+  month. 240 samples (20 years) are kept.
+- **Overlays are fields, not special renderers:** the sim computes one number per tile
+  (`computeOverlay`) and the renderer only knows "heat map with thresholds". Supply and demand
+  are summed over a station-size window (summed-area table), so the value reads as "what a
+  station here would collect / absorb". Fields refresh monthly or when you change them.
+- **Heat maps stay inside the palette:** they are rasterised into a transparent layer with an
+  ordered-dither mask (¼, ½, ¾ of the pixels), never alpha-blended, and cached until the view
+  or the data changes. Magnitude is carried by both colour and dither density; the ramps
+  avoid red/green pairs.
+- **Traffic, route profit and congestion** are per-tile counters fed by the trains themselves
+  (every node entered, every tick blocked at a signal, every breakdown) and multiplied by 0.7
+  each month, so they show recent conditions without storing histories.
+- **Advice is derived, never stored:** `advise(game)` re-reads the state, so an item vanishes
+  once its cause is fixed. Dismissals are by stable key (e.g. `wait:<station>:<cargo>`) and
+  last for the session. Rivals' trains and stations are ignored.
+- **Bulk actions reuse the single-train commands** (upgrade, sell, set route), so their rules
+  (cash, ownership, game over) stay in one place; failures are counted and reported.
+- **Templates** copy engine, cars and route; if the engine is no longer on sale the best
+  engine that can pull the cars is used.
+- **Tooltips** are the game's own pixel tooltips (multi-line, formulas spelled out) instead of
+  browser `title`s, which are slow, unstyled and invisible to touch users.
+
+## Content & polish (M8)
+- **Saves are a snapshot of the object graph**, not a replay or a hand-written schema: every
+  object reachable from the Game is written once (shared references and cycles preserved),
+  with Maps, Sets and typed arrays encoded and the sim's classes restored by prototype. New
+  fields are saved automatically. Event listeners, the train system's host and the undo
+  history are left out and rebuilt (loading clears undo). A test runs a game, saves, loads,
+  runs both on and checks the two states are byte-identical. To make that hold, station
+  supply is now recomputed every month instead of only on visible population steps.
+- **Storage:** IndexedDB (falls back to localStorage); files export as plain JSON. Saves carry
+  a version number and are refused when it doesn't match.
+- **Events and managers share one modifier system** (revenue/supply by cargo, group or all;
+  construction, fuel, upkeep, breakdowns, interest, growth, goodwill). Events apply to every
+  railroad, a manager only to its company. Event revenue appears in the economy factor of the
+  delivery formula, a manager's in the bonus factor, so the formula stays explainable.
+  Technologies are events that happen once and last.
+- **Territories are Voronoi regions** around spread-out towns. Only the player has goodwill
+  (rivals simply stay out of restricted regions). Goodwill moves slowly and visibly: it is in
+  the inspector, the overlay and the construction cost. Hand-made worlds (tests, future
+  scenario maps from tests) start with charters off; generated and hand-made maps with charters
+  on (new-map option).
+- **Scenarios are data** (map parameters, settings, one metric with three tiers, optional
+  "connect these towns" requirements). The medal is the best tier reached; gold ends the
+  scenario early, otherwise it ends at the deadline. Medals are stored in the browser.
+- **Hand-made maps are layouts, not tile dumps** (`maps.json`): features in map fractions on a
+  gentle noise base, so a map stays small, editable by hand, works at every size and still
+  looks natural; the seed only changes detail. Named towns are placed first (so their ids are
+  stable and scenarios can name them), get flattened ground, and keep their size and
+  population; extra random towns stay village/town-sized so the named ones remain the
+  landmarks. Fixed industries fall back to any flat free spot nearby if the usual placement
+  rules (terrain, height, distance to a town) say no — the author asked for it there.
+- **Rivals look further on sparse maps:** when no town pair lies within a baron's usual route
+  length, the AI widens the range step by step (up to 2.6×) instead of building nothing.
+- **Board votes can be switched off** (`boardVotes`): off in the easy scenarios and optional in
+  the sandbox, since the spec makes being voted out a game-over only "in some scenarios".
+- **Medal tiers are checked with a scripted player** (`scripts/scenario-bot.ts`): it builds a
+  fixed list of sensible lines per scenario, adds trains where cargo waits and plays to the
+  deadline. It plays plainly, so its result is about bronze to silver; gold needs a better
+  plan.
+- **Transfers are an order on a stop**, not a station type: the train sets everything down
+  there as lots that remember their first station, loading time, destination and the trains
+  that carried them. Payment waits for the final delivery and uses the whole distance and
+  time, so feeding a trunk line never loses money against a through train; the train
+  statistics split it by distance. A lot never goes straight back onto the train that set it
+  down, and only onto trains that can place it (a later stop wants it or transfers it again).
+- **Destinations are destinations, not paths:** new passengers and mail pick a station among
+  those reachable with at most one change (gravity: people served / (1 + distance/60)). The
+  station keeps them in buckets per destination; a train boards only those it can take there
+  (it calls there, or calls where a connecting train does). Changing trains reuses the
+  transfer lots. One change keeps it understandable and cheap to compute; the link graph is
+  rebuilt only when a route changes. Off by default (a toggle, as the spec asks), so
+  balancing and scenarios are unchanged.
+- **The tutorial is a scenario plus a step list** whose conditions read the game state
+  (stations in the two towns, connected, a train, revenue, windows opened), so it can't get
+  out of sync with what the player actually did.
+- **Audio is synthesized at run time** with WebAudio: pulse/triangle/square oscillators and
+  LFSR-style noise; the songs are generated bar by bar from a 12-bar (or 16-bar) form with a
+  seeded improvised lead, so they vary between choruses. The note generator is pure and
+  unit-tested; an offline render produced the previews. Sound starts on the first click or
+  key press (browser autoplay rules).
+

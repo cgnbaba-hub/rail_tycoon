@@ -16,6 +16,12 @@ import carsJson from './cars.json';
 import economyJson from './economy.json';
 import financeJson from './finance.json';
 import aiJson from './ai.json';
+import advisorJson from './advisor.json';
+import eventsJson from './events.json';
+import managersJson from './managers.json';
+import territoriesJson from './territories.json';
+import scenariosJson from './scenarios.json';
+import mapsJson from './maps.json';
 
 export type TerrainName = 'water' | 'sand' | 'grass' | 'forest' | 'rough' | 'snow';
 
@@ -142,6 +148,8 @@ export interface EconomyData {
   maxWaitingMonths: number;
   timeValue: { idealMph: number; halfLifeDays: Record<string, number>; graceDays: number; minFactor: number };
   loading: { hoursPerLoad: number; minDwellHours: number; maxWaitDays: number };
+  transfers: { maxLots: number; maxDays: number };
+  destinations: { cargos: string[]; distanceScale: number };
   platforms: Record<string, number>;
   fuelPrice: Record<string, number>;
   trackMaintenance: { perTileYear: number; doubleFactor: number; bridgeFactor: number; tunnelFactor: number; stationPerYear: Record<string, number> };
@@ -434,6 +442,143 @@ export interface AiData {
 }
 
 export const AI: AiData = aiJson as unknown as AiData;
+export interface AdvisorData {
+  waitingLoads: number;
+  lowLoadFactor: number;
+  minDepartures: number;
+  losingMonths: number;
+  signalWaitDays: number;
+  saturatedDemand: number;
+  lowCash: number;
+  badRatingIndex: number;
+  rivalStakeNotice: number;
+  confidenceDrop: number;
+  maxItems: number;
+}
+export const ADVISOR: AdvisorData = advisorJson as AdvisorData;
+
+/** What an event or a manager changes (see sim/modifiers.ts). */
+export interface ModifierSpec {
+  revenue?: Record<string, number>;
+  supply?: Record<string, number>;
+  construction?: number;
+  fuel?: number;
+  maintenance?: number;
+  breakdowns?: number;
+  interest?: number;
+  growth?: number;
+  goodwill?: number;
+  /** Added to business confidence once, when the event starts. */
+  confidence?: number;
+}
+
+export interface EventDef {
+  id: string;
+  name: string;
+  era: [number, number];
+  chancePerYear: number;
+  /** [min, max] months; [0, 0] = permanent technology. */
+  months: [number, number];
+  tone: number;
+  headline: string;
+  effects: ModifierSpec;
+}
+export const EVENTS = eventsJson as unknown as { cooldownMonths: number; events: EventDef[] };
+
+export interface ManagerDef {
+  id: string;
+  name: string;
+  title: string;
+  salary: number;
+  desc: string;
+  effects: ModifierSpec;
+}
+export const MANAGERS = managersJson as unknown as { fee: number; offered: number; managers: ManagerDef[] };
+export interface TerritoriesData {
+  tilesPerRegion: number;
+  minRegions: number;
+  maxRegions: number;
+  restrictedShare: number;
+  start: number;
+  charterGoodwill: number;
+  charterFee: number;
+  costAt0: number;
+  costAt100: number;
+  perServedStation: number;
+  perRevenue: number;
+  revenueCap: number;
+  idleStation: number;
+  drift: number;
+  perDemolished: number;
+  bulldozedStation: number;
+  wreck: number;
+  names: string[];
+}
+export const TERRITORIES = territoriesJson as TerritoriesData;
+
+/** A point in map fractions: [0, 0] is the north-west corner, [1, 1] the south-east. */
+export type MapPoint = [number, number];
+/** Terrain features of a hand-made map. Positions and sizes are fractions of the map size. */
+export type MapFeature =
+  | { type: 'sea'; edge: 'north' | 'south' | 'east' | 'west'; at: number; wobble?: number }
+  | { type: 'lake'; x: number; y: number; rx: number; ry?: number; wobble?: number }
+  | { type: 'ridge'; path: MapPoint[]; width: number; height: number; jagged?: number }
+  | { type: 'hills'; x: number; y: number; r: number; height: number }
+  | { type: 'plain'; x: number; y: number; r: number; height: number }
+  | { type: 'river'; path: MapPoint[]; valley?: number }
+  | { type: 'forest'; x: number; y: number; r: number; amount: number }
+  | { type: 'desert'; x: number; y: number; r: number };
+export type TownSize = 'village' | 'town' | 'city' | 'metropolis';
+export interface MapLayoutDef {
+  id: string;
+  name: string;
+  desc: string;
+  /** Default size (sandbox); scenarios may pick another. */
+  size: number;
+  /** Base land elevation (0–1), noise amplitude and height exponent. */
+  land?: number;
+  roughness?: number;
+  exponent?: number;
+  features: MapFeature[];
+  /** Extra random rivers. */
+  rivers?: number;
+  towns: Array<{ name: string; x: number; y: number; size: TownSize; pop?: number }>;
+  /** Random villages and towns added between the named ones. */
+  extraTowns?: number;
+  industries?: Array<{ type: string; x: number; y: number }>;
+  /** Density of random industries on top of the fixed ones (1 = like a random map). */
+  randomIndustries?: number;
+}
+export const MAPS: MapLayoutDef[] = (mapsJson as unknown as { maps: MapLayoutDef[] }).maps;
+export const MAP_BY_ID: ReadonlyMap<string, MapLayoutDef> = new Map(MAPS.map((m) => [m.id, m]));
+
+export type ScenarioMetric = 'bookValue' | 'netWorth' | 'bestYearRevenue' | 'cargoLoads' | 'rank';
+export interface ScenarioDef {
+  id: string;
+  name: string;
+  tutorial?: boolean;
+  brief: string;
+  /** Difficulty shown in the scenario list. */
+  difficulty: 'easy' | 'medium' | 'hard';
+  /** Map parameters; missing ones take the defaults (and a hand-made map's own size). */
+  map: {
+    seed: number;
+    startYear: number;
+    size?: number;
+    water?: WaterSetting;
+    hills?: HillSetting;
+    forests?: DensitySetting;
+    cities?: DensitySetting;
+    layout?: string;
+  };
+  settings: { rivals?: number; aiLevel?: AiLevel; friendlyAi?: boolean; model?: EconomicModel; charters?: boolean; wrecks?: boolean; boardVotes?: boolean };
+  years: number;
+  goal: { metric: ScenarioMetric; label: string; tiers: [number, number, number]; cargos?: string[]; goldNetWorth?: number };
+  /** Towns by population rank (number) or by name (hand-made maps). */
+  requires: Array<{ type: 'connect'; a: number | string; b: number | string }>;
+}
+export const SCENARIOS: ScenarioDef[] = (scenariosJson as unknown as { scenarios: ScenarioDef[] }).scenarios;
+export const MANAGER_BY_ID: ReadonlyMap<string, ManagerDef> = new Map(MANAGERS.managers.map((m) => [m.id, m]));
 export const STATION_BY_ID: ReadonlyMap<string, StationDef> = new Map(STATIONS.map((s) => [s.id, s]));
 
 export const ENGINES: EngineDef[] = enginesJson.engines as EngineDef[];
@@ -472,6 +617,20 @@ export function validateData(): void {
   for (const st of states) {
     if (!(st in FINANCE.stock.peByState)) throw new Error(`finance.json: no P/E for economic state ${st}`);
     if (!(st in FINANCE.bonds.baseRate)) throw new Error(`finance.json: no base rate for economic state ${st}`);
+  }
+  const townSizes = MAPGEN.cities.classes.map((c) => c.id);
+  for (const m of MAPS) {
+    for (const t of m.towns) if (!townSizes.includes(t.size)) throw new Error(`maps.json: ${m.id} town ${t.name} has unknown size ${t.size}`);
+    for (const i of m.industries ?? []) if (!INDUSTRY_BY_ID.has(i.type)) throw new Error(`maps.json: ${m.id} uses unknown industry ${i.type}`);
+  }
+  for (const sc of SCENARIOS) {
+    const layout = sc.map.layout ? MAP_BY_ID.get(sc.map.layout) : undefined;
+    if (sc.map.layout && !layout) throw new Error(`scenarios.json: ${sc.id} uses unknown map ${sc.map.layout}`);
+    for (const r of sc.requires) {
+      for (const t of [r.a, r.b]) {
+        if (typeof t === 'string' && !layout?.towns.some((x) => x.name === t)) throw new Error(`scenarios.json: ${sc.id} needs unknown town ${t}`);
+      }
+    }
   }
   const lev = FINANCE.bonds.ratings.map((r) => r.maxLeverage);
   if (lev.some((v, i) => i > 0 && v <= lev[i - 1])) throw new Error('finance.json: rating leverage limits must increase');
