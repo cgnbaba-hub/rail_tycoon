@@ -17,6 +17,9 @@ npm test         # Vitest unit tests (simulation + pure render math)
 npm run build    # type-check + production build into dist/
 ```
 
+To run it on your own server with automatic updates from this repository, see
+[`deploy/README.md`](deploy/README.md) (one command on a systemd Linux server).
+
 Useful URL parameters: `?seed=1234&size=128` (sizes: 64, 128, 192, 256), `?map=high_pass` (a
 hand-made map, see below).
 
