@@ -272,7 +272,7 @@ export function lastDeliveryHtml(game: Game, t: Train): string {
   const rows = d.quotes
     .map(
       (q) => `<div class="formula-row">
-        <div class="kv"><span>${cargoChip(q.cargo)} ×${fmtInt(q.loads)}</span><b>${fmtMoney(q.total)}</b></div>
+        <div class="kv"><span>${cargoChip(q.cargo)} ×${fmtInt(q.loads)}${q.transferred ? ` <small data-tip="Came by transfer: paid from the station it was first loaded at, shared with the trains that carried it before by distance">${fmtInt(q.transferred)} via transfer</small>` : ''}</span><b>${fmtMoney(q.total)}</b></div>
         <small data-tip="Pay per load (base + per mile × ${q.miles.toFixed(1)} mi) × time × demand × economy × bonus">${fmtMoney(q.distancePay)} × ${f(q.timeFactor)} time × ${f(q.demandFactor)} demand × ${f(q.economyFactor)} econ × ${f(q.bonusFactor)} bonus</small>
       </div>`,
     )

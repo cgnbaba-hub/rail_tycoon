@@ -1,7 +1,8 @@
 import { CARGO_BY_ID, CAR_BY_ID, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, ENGINES, TIME, type EngineDef } from '../data';
 import type { Company } from './company';
 import { gradePercent } from './construction';
-import type { Economy, RevenueQuote } from './economy';
+import { RouteNetwork, isDestinedCargo } from './cargoflow';
+import type { Economy, RevenueQuote, TransferLot } from './economy';
 import type { Rng } from './rng';
 import { findTrainPath, tileDistance } from './routing';
 import { stationEffects, type Station } from './station';
@@ -32,6 +33,12 @@ export interface Car {
   /** Station the load came from, and when it was loaded (tick). */
   origin: number;
   loadedTick: number;
+  /** Station this train took the load on at (differs from origin after a transfer). */
+  from?: number;
+  /** Destination station of passengers/mail (destinations mode); -1 or missing = any. */
+  dest?: number;
+  /** Trains that carried the load before (transfers) and the tiles each covered. */
+  legs?: Array<[number, number]>;
 }
 
 export interface RouteStop {
@@ -40,6 +47,8 @@ export interface RouteStop {
   load: 'auto' | 'keep';
   /** Wait until every car is loaded (up to economy.loading.maxWaitDays). */
   waitFull: boolean;
+  /** Set everything down here for other trains to carry on (paid on final delivery). */
+  transfer?: boolean;
 }
 
 export type TrainState = 'running' | 'signal' | 'loading' | 'broken' | 'noroute';
@@ -353,7 +362,7 @@ export interface TrainHost {
   rng: Rng;
   tick: number;
   year: number;
-  settings: { wrecks: boolean };
+  settings: { wrecks: boolean; destinations?: boolean };
   emit(e: TrainEvent): void;
   /** Event + manager effects for a company. */
   mods(owner: number): Modifiers;
@@ -414,6 +423,10 @@ export class TrainSystem {
   readonly traffic: Float32Array;
   readonly profitSum: Float32Array;
   readonly waits: Float32Array;
+
+  /** Which stations the trains link (rebuilt when routes change; not saved). */
+  private net?: RouteNetwork;
+  private netTick = -1;
 
   constructor(private host: TrainHost) {
     const n = host.world.width * host.world.height;
@@ -668,6 +681,7 @@ export class TrainSystem {
     t.holds.push({ node: -1, lane: 'Pin', station: st.id, releaseAt: Infinity });
     this.resetTrail(t, st.axis === 'x' ? 0 : 2);
     this.trains.push(t);
+    this.netTick = -1;
     this.arrive(t, true);
     return t;
   }
@@ -676,6 +690,7 @@ export class TrainSystem {
     this.releaseAll(t);
     const i = this.trains.indexOf(t);
     if (i >= 0) this.trains.splice(i, 1);
+    this.netTick = -1;
   }
 
   /**
@@ -992,7 +1007,7 @@ export class TrainSystem {
     t.sand = undefined;
     const fx = stationEffects(st);
     if (st && stop && st.id === stop.station) {
-      if (!spawned) handled += this.unload(t, st);
+      if (!spawned) handled += this.unload(t, st, stop);
       handled += this.load(t, st, stop);
       if (fx.breakdown < 1 || fx.maintenance < 1) {
         t.service = { until: this.host.tick + ECONOMY.serviceDays * TIME.ticksPerDay, breakdown: fx.breakdown, maintenance: fx.maintenance };
@@ -1007,16 +1022,115 @@ export class TrainSystem {
     return t.route.some((r) => r.station !== except && this.host.economy.accepts(r.station, cargo));
   }
 
-  private unload(t: Train, st: Station): number {
+  /** The station links of all routes, kept up to date. */
+  network(): RouteNetwork {
+    if (!this.net) this.net = new RouteNetwork();
+    // Routes change rarely; checking once per tick is plenty.
+    if (this.netTick !== this.host.tick) {
+      this.net.update(this.trains);
+      this.netTick = this.host.tick;
+    }
+    return this.net;
+  }
+
+  /** Call after changing a route so the next query rebuilds the station links. */
+  routesChanged(): void {
+    this.netTick = -1;
+  }
+
+  private destined(cargo: string): boolean {
+    return !!this.host.settings.destinations && isDestinedCargo(cargo);
+  }
+
+  /** Can `t`, standing at `here`, bring a traveller to `dest`: it calls there, or at a station another train links to it. */
+  private canCarryTo(t: Train, here: number, dest: number): boolean {
+    if (dest === here) return false;
+    const net = this.network();
+    return t.route.some((r) => r.station !== here && (r.station === dest || net.linked(r.station).has(dest)));
+  }
+
+  /** Can a transfer lot at `here` go with train `t`? Not straight back onto the train that set it down. */
+  private lotUsable(t: Train, here: number, lot: TransferLot): boolean {
+    const last = lot.legs[lot.legs.length - 1];
+    if (last && last[0] === t.id) return false;
+    if (lot.dest >= 0 && this.world.stations[lot.dest]) return this.canCarryTo(t, here, lot.dest);
+    return t.route.some((r) => r.station !== here && (r.transfer || this.host.economy.accepts(r.station, lot.cargo)));
+  }
+
+  /** Whole loads of `cargo` at `st` this train could take (transfer lots included). */
+  private available(t: Train, st: Station, cargo: string): number {
+    const econ = this.host.economy;
+    const sc = econ.cargoAt(st.id);
+    let n = 0;
+    for (const lot of sc.transfer ?? []) if (lot.cargo === cargo && this.lotUsable(t, st.id, lot)) n++;
+    if (this.destined(cargo)) return n + econ.destinedAvailable(st.id, cargo, (d) => this.canCarryTo(t, st.id, d));
+    return n + Math.floor((sc.waiting[cargo] ?? 0) + 1e-9);
+  }
+
+  /** Put one load into an empty car: a waiting transfer lot first, else fresh cargo. */
+  private takeOne(t: Train, st: Station, car: Car): boolean {
+    const econ = this.host.economy;
+    const lots = econ.cargoAt(st.id).transfer;
+    const i = lots ? lots.findIndex((l) => l.cargo === car.cargo && this.lotUsable(t, st.id, l)) : -1;
+    if (lots && i >= 0) {
+      const [lot] = lots.splice(i, 1);
+      Object.assign(car, { loads: 1, origin: lot.origin, loadedTick: lot.loadedTick, from: st.id, dest: lot.dest, legs: lot.legs });
+      return true;
+    }
+    let dest = -1;
+    if (this.destined(car.cargo)) {
+      const got = econ.takeDestined(st.id, car.cargo, 1, (d) => this.canCarryTo(t, st.id, d));
+      if (!got.length) return false;
+      dest = got[0];
+    } else if (econ.take(st.id, car.cargo, 1) !== 1) return false;
+    Object.assign(car, { loads: 1, origin: st.id, loadedTick: this.host.tick, from: st.id, dest, legs: undefined });
+    return true;
+  }
+
+  /** Set a load down at `st` for another train to carry on. */
+  private setDown(t: Train, st: Station, car: Car): void {
+    const sc = this.host.economy.cargoAt(st.id);
+    const from = this.world.stations[car.from ?? car.origin];
+    const tiles = from ? tileDistance(this.world, stopTile(from), stopTile(st)) : 0;
+    (sc.transfer ??= []).push({
+      cargo: car.cargo,
+      origin: car.origin,
+      loadedTick: car.loadedTick,
+      dest: car.dest ?? -1,
+      legs: [...(car.legs ?? []), [t.id, tiles]],
+      since: Math.floor(this.host.tick / TIME.ticksPerDay),
+    });
+    Object.assign(car, { loads: 0, origin: -1, from: undefined, dest: undefined, legs: undefined });
+  }
+
+  private unload(t: Train, st: Station, stop: RouteStop): number {
     const econ = this.host.economy;
     const quotes = new Map<string, RevenueQuote>();
     const bonus = consistBonus(t.cars);
     let n = 0;
+    let set = 0;
     let total = 0;
     for (const car of t.cars) {
-      if (car.loads <= 0 || car.origin === st.id || isSpecialCar(car.cargo)) continue;
+      if (car.loads <= 0 || (car.from ?? car.origin) === st.id || isSpecialCar(car.cargo)) continue;
+      const dest = car.dest !== undefined && car.dest >= 0 && this.world.stations[car.dest] ? car.dest : -1;
+      if (dest >= 0 && dest !== st.id) {
+        // Travellers stay aboard if this train goes there, change here if a train from here does.
+        if (t.route.some((r) => r.station === dest)) continue;
+        if (this.network().linked(st.id).has(dest)) {
+          this.setDown(t, st, car);
+          set++;
+          continue;
+        }
+        if (this.canCarryTo(t, st.id, dest)) continue;
+        car.dest = -1; // no way there any more: they get off wherever they are welcome
+      }
+      if (dest < 0 && stop.transfer) {
+        this.setDown(t, st, car);
+        set++;
+        continue;
+      }
       const demanded = econ.accepts(st.id, car.cargo);
-      if (!demanded && this.routeDemands(t, car.cargo, st.id)) continue;
+      if (dest !== st.id && !demanded && this.routeDemands(t, car.cargo, st.id)) continue;
       const origin = this.world.stations[car.origin];
       const dist = origin ? tileDistance(this.world, stopTile(origin), stopTile(st)) : 0;
       const days = (this.host.tick - car.loadedTick) / TIME.ticksPerDay;
@@ -1030,34 +1144,53 @@ export class TrainSystem {
         prev.demandFactor = (prev.demandFactor * prev.loads + q.demandFactor * q.loads) / w;
         prev.loads = w;
         prev.total += q.total;
-      } else quotes.set(car.cargo, q);
+        if (car.legs?.length) prev.transferred = (prev.transferred ?? 0) + car.loads;
+      } else {
+        if (car.legs?.length) q.transferred = car.loads;
+        quotes.set(car.cargo, q);
+      }
       total += q.total;
       econ.deliver(st.id, car.cargo, car.loads, q.total);
       this.host.companyOf(t.owner).earn(this.host.year, car.cargo, q.total);
-      t.stats.revenue += q.total;
-      t.stats.monthNet += q.total;
+      // Trains that carried it before get their share, by distance.
+      let own = q.total;
+      if (car.legs?.length) {
+        const from = this.world.stations[car.from ?? car.origin];
+        const last = from ? tileDistance(this.world, stopTile(from), stopTile(st)) : 0;
+        const sum = car.legs.reduce((a, l) => a + l[1], last);
+        for (const [id, tiles] of car.legs) {
+          const other = this.byId(id);
+          if (!other || other === t || other.owner !== t.owner || sum <= 0) continue;
+          const part = Math.round((q.total * tiles) / sum);
+          other.stats.revenue += part;
+          other.stats.monthNet += part;
+          own -= part;
+        }
+      }
+      t.stats.revenue += own;
+      t.stats.monthNet += own;
       t.stats.deliveries += car.loads;
       const co = this.host.companyOf(t.owner);
       co.delivered.set(car.cargo, (co.delivered.get(car.cargo) ?? 0) + car.loads);
       n += car.loads;
-      car.loads = 0;
-      car.origin = -1;
+      Object.assign(car, { loads: 0, origin: -1, from: undefined, dest: undefined, legs: undefined });
     }
     if (n > 0) {
       t.lastDelivery = { station: st.id, tick: this.host.tick, quotes: [...quotes.values()] };
       this.host.emit({ type: 'delivery', train: t.id, station: st.id, revenue: total, quotes: [...quotes.values()] });
     }
-    return n;
+    return n + set;
   }
 
-  /** Best-paying cargo waiting here for an empty car, judged by the next stop that wants it. */
-  private bestCargo(t: Train, st: Station, taken: Map<string, number>): string | null {
+  /** Best-paying cargo here for an empty car, judged by the next stop that wants it. */
+  private bestCargo(t: Train, st: Station): string | null {
     const econ = this.host.economy;
-    const waiting = econ.cargoAt(st.id).waiting;
+    const sc = econ.cargoAt(st.id);
+    const cargos = new Set([...Object.keys(sc.waiting), ...(sc.transfer ?? []).map((l) => l.cargo)]);
     let best: string | null = null;
     let bestValue = 0;
-    for (const [cargo, amount] of Object.entries(waiting)) {
-      if (Math.floor(amount + 1e-9) - (taken.get(cargo) ?? 0) < 1) continue;
+    for (const cargo of cargos) {
+      if (this.available(t, st, cargo) < 1) continue;
       const def = CARGO_BY_ID.get(cargo);
       if (!def) continue;
       // Value at the first later stop that demands it (else the next stop at a discount).
@@ -1084,25 +1217,17 @@ export class TrainSystem {
   }
 
   private load(t: Train, st: Station, stop: RouteStop): number {
-    const econ = this.host.economy;
     let n = 0;
-    const taken = new Map<string, number>();
     for (const car of t.cars) {
       if (car.loads > 0 || isSpecialCar(car.cargo)) continue;
       if (stop.load === 'auto') {
-        const best = this.bestCargo(t, st, taken);
+        const best = this.bestCargo(t, st);
         if (best) {
           car.cargo = best;
           car.type = carForCargo(best);
         }
       }
-      if (econ.take(st.id, car.cargo, 1) === 1) {
-        car.loads = 1;
-        car.origin = st.id;
-        car.loadedTick = this.host.tick;
-        taken.set(car.cargo, (taken.get(car.cargo) ?? 0) + 1);
-        n++;
-      }
+      if (this.takeOne(t, st, car)) n++;
     }
     return n;
   }

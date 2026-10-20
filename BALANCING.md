@@ -364,3 +364,16 @@ Rush ~6,000 loads (bronze), Streamliner $1.9M (bronze), Iron Horse $1.06M and Br
 Divide $265k (just short of bronze). Gold is meant to need a clearly better plan: double
 track, more lines, feeder routes and good timing on the stock market.
 
+## Transfers & destinations
+
+`economy.json` → `transfers`: at most 300 lots wait at a station; lots older than 180 days are
+lost. A transferred load pays like a direct one from its first station: distance pay over the
+straight-line distance first station → final station, time factor over the whole time since
+loading (waiting at the hub counts). Train revenue statistics split the payment by the
+straight-line distance each train carried the load.
+
+`destinations`: passengers and mail only. New travellers at station A go to a station D
+reachable with at most one change of trains and accepting the cargo, with probability
+∝ people served by D / (1 + distance(A, D) / 60 tiles). With a single line A–B everyone goes
+to B, so a lone line earns the same as without destinations; in a network, travellers spread
+and some change trains (each change costs time, which lowers the time factor).

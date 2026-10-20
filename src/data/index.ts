@@ -148,6 +148,8 @@ export interface EconomyData {
   maxWaitingMonths: number;
   timeValue: { idealMph: number; halfLifeDays: Record<string, number>; graceDays: number; minFactor: number };
   loading: { hoursPerLoad: number; minDwellHours: number; maxWaitDays: number };
+  transfers: { maxLots: number; maxDays: number };
+  destinations: { cargos: string[]; distanceScale: number };
   platforms: Record<string, number>;
   fuelPrice: Record<string, number>;
   trackMaintenance: { perTileYear: number; doubleFactor: number; bridgeFactor: number; tunnelFactor: number; stationPerYear: Record<string, number> };

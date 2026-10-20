@@ -41,7 +41,7 @@ const CLASSES: Record<string, { prototype: object }> = {
 /** Fields never saved (re-created on load). */
 const SKIP: Record<string, Set<string>> = {
   Game: new Set(['listeners', 'undoStack']),
-  TrainSystem: new Set(['host']),
+  TrainSystem: new Set(['host', 'net', 'netTick']),
   Economy: new Set(['cache']),
 };
 

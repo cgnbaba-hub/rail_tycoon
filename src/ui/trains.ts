@@ -88,7 +88,7 @@ export function trainPanelHtml(game: Game, t: Train): string {
     .map((r, i) => {
       const st = game.world.stations[r.station];
       const cur = i === t.stop ? ' class="cur"' : '';
-      return `<li${cur}>${st ? esc(st.name) : '<em class="bad">removed</em>'}<small>${r.load === 'auto' ? 'auto' : 'keep'}${r.waitFull ? ' · full load' : ''}</small></li>`;
+      return `<li${cur}>${st ? esc(st.name) : '<em class="bad">removed</em>'}<small>${r.load === 'auto' ? 'auto' : 'keep'}${r.waitFull ? ' · full load' : ''}${r.transfer ? ' · transfer' : ''}</small></li>`;
     })
     .join('');
   const profit = t.stats.revenue - t.stats.costs;
@@ -112,6 +112,7 @@ export function trainPanelHtml(game: Game, t: Train): string {
     <p class="hint" style="margin:0.1em 0 0.3em">${trainStatus(game, t)}</p>
     <div class="section">Cars</div>
     <div class="cars">${t.cars.map((c) => chip(c.cargo, c.loads > 0)).join(' ')}</div>
+    ${aboardHtml(game, t)}
     <div class="section">Route</div>
     <ol class="route">${stops}</ol>
     ${row('Profit this year', `<span class="${profit < 0 ? 'bad' : ''}">${fmtMoney(profit)}</span>`)}
@@ -125,6 +126,19 @@ export function trainPanelHtml(game: Game, t: Train): string {
     ${row('Reliability', `${Math.round(e.reliability * 100)}% · ${t.stats.breakdowns} breakdown${t.stats.breakdowns === 1 ? '' : 's'}`)}
     ${row('Resale value', fmtMoney(resaleValue(t, game.tick)))}
     <div class="actions wrap">${actions}</div>`;
+}
+
+/** Travellers aboard and where they are going (destinations mode), transferred loads. */
+function aboardHtml(game: Game, t: Train): string {
+  const to = new Map<number, number>();
+  let via = 0;
+  for (const c of t.cars) {
+    if (c.loads <= 0) continue;
+    if (c.dest !== undefined && c.dest >= 0) to.set(c.dest, (to.get(c.dest) ?? 0) + c.loads);
+    if (c.legs?.length) via += c.loads;
+  }
+  const list = [...to].map(([d, n]) => `${esc(game.world.stations[d]?.name ?? '?')} ×${n}`).join(' · ');
+  return `${list ? `<p class="hint" style="margin:0.2em 0">Bound for ${list}</p>` : ''}${via ? `<p class="hint" style="margin:0.2em 0">${via} load${via === 1 ? '' : 's'} came by transfer</p>` : ''}`;
 }
 
 export function bindTrainPanel(root: HTMLElement, host: TrainUiHost & { follow(id: number): void }, t: Train): void {
@@ -222,6 +236,29 @@ export function stationEconomyHtml(game: Game, st: Station): string {
     .map(([cargo, v]) => `<div class="gauge">${chip(cargo)}<span class="bar"><i style="width:100%"></i></span><b>${Math.floor(v)}</b><small>made here</small></div>`)
     .join('');
   const accepts = [...se.accepts].map((c) => chip(c)).join(' ');
+  // Loads set down for other trains, by cargo and (travellers) destination.
+  const lots = new Map<string, { cargo: string; dest: number; n: number }>();
+  for (const l of sc.transfer ?? []) {
+    const k = `${l.cargo}:${l.dest}`;
+    const e = lots.get(k) ?? { cargo: l.cargo, dest: l.dest, n: 0 };
+    e.n++;
+    lots.set(k, e);
+  }
+  const transfer = [...lots.values()]
+    .sort((a, b) => b.n - a.n)
+    .map((e) => `<div class="kv">${chip(e.cargo)}<span class="grow">${e.dest >= 0 ? `→ ${esc(game.world.stations[e.dest]?.name ?? '?')}` : ''}</span><b>${e.n}</b></div>`)
+    .join('');
+  const bound = Object.entries(sc.dest ?? {})
+    .map(([cargo, b]) => {
+      const list = Object.entries(b)
+        .filter(([, v]) => v >= 0.5)
+        .sort((x, y) => y[1] - x[1])
+        .slice(0, 5)
+        .map(([d, v]) => `${esc(game.world.stations[Number(d)]?.name ?? '?')} ${Math.floor(v)}`)
+        .join(' · ');
+      return list ? `<div class="kv">${chip(cargo)}<small class="grow">${list}</small></div>` : '';
+    })
+    .join('');
   const delivered = Object.entries(sc.delivered)
     .sort((a, b) => b[1] - a[1])
     .map(([c, n]) => row(CARGO_BY_ID.get(c)?.name ?? c, `${fmtInt(n)} loads`, 'sub'))
@@ -229,6 +266,8 @@ export function stationEconomyHtml(game: Game, st: Station): string {
   return `
     <div class="section">Waiting (supply)</div>
     ${waiting || extra ? waiting + extra : '<p class="hint">Nothing produced in reach.</p>'}
+    ${bound ? `<div class="section" data-tip="Passengers and mail wait for a train towards their own station">Travelling to</div>${bound}` : ''}
+    ${transfer ? `<div class="section" data-tip="Set down by trains with a transfer order (or travellers changing trains); picked up by any train that can carry them on">Waiting to transfer</div>${transfer}` : ''}
     <div class="section">Pays full price for (demand)</div>
     <div class="cars">${accepts || '<span class="hint">Nothing — other cargo pays ' + Math.round(ECONOMY.models[game.economy.model].nonDemandedFactor * 100) + '%</span>'}</div>
     <div class="section">Delivered here this year · ${fmtMoney(sc.revenue)}</div>
@@ -318,9 +357,11 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
     const routeRows = draft.route
       .map(
         (r, i) => `<li><span class="num">${i + 1}</span><select data-stop="${i}">${stationOpts(r.station)}</select>
+          <button class="btn small" data-del="${i}" ${draft.route.length <= 2 ? 'disabled' : ''} aria-label="Remove stop">×</button>
           <select data-load="${i}" data-tip="Loading at this stop"><option value="auto"${r.load === 'auto' ? ' selected' : ''}>Auto-load best paying</option><option value="keep"${r.load === 'keep' ? ' selected' : ''}>Keep car types</option></select>
           <label class="check"><input type="checkbox" data-full="${i}"${r.waitFull ? ' checked' : ''}/> wait for full load</label>
-          <button class="btn small" data-del="${i}" ${draft.route.length <= 2 ? 'disabled' : ''} aria-label="Remove stop">×</button></li>`,
+          <label class="check" data-tip="Set everything down here for other trains to carry on. It is paid when it reaches a station that wants it — from the station it was first loaded at — and shared between the trains by distance."><input type="checkbox" data-transfer="${i}"${r.transfer ? ' checked' : ''}/> transfer</label>
+</li>`,
       )
       .join('');
     const specials = Object.entries(SPECIAL_CARS).map(([id, car]) => {
@@ -391,6 +432,14 @@ export function openTrainDialog(host: TrainUiHost, trainId?: number, presetStati
     root.querySelectorAll<HTMLInputElement>('[data-full]').forEach((s) =>
       s.addEventListener('change', () => {
         draft.route[Number(s.dataset.full)].waitFull = s.checked;
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLInputElement>('[data-transfer]').forEach((s) =>
+      s.addEventListener('change', () => {
+        const r = draft.route[Number(s.dataset.transfer)];
+        if (s.checked) r.transfer = true;
+        else delete r.transfer;
         render();
       }),
     );

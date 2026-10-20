@@ -1,5 +1,6 @@
 import { AI, MANAGERS, MANAGER_BY_ID, TERRITORIES, type EventDef, CAR_BY_ID, COMPANY, CONSTRUCTION, ECONOMY, ENGINE_BY_ID, FINANCE, IMPROVEMENT_BY_ID, STATION_BY_ID, TIME, type AiLevel, type EconomicModel } from '../data';
 import { AIBaron } from './ai';
+import { isDestinedCargo } from './cargoflow';
 import { Statistics } from './stats';
 import { EventSystem } from './events';
 import { Territories, type Region } from './territories';
@@ -137,6 +138,8 @@ export interface GameSettings {
   charters: boolean;
   /** The shareholders vote on the chairman each January (two failed votes end the game). Off in the easy scenarios. */
   boardVotes: boolean;
+  /** Passengers and mail travel to a chosen station (changing trains at most once) instead of to any stop. */
+  destinations: boolean;
 }
 
 /** Map a cost breakdown onto ledger categories. */
@@ -217,7 +220,7 @@ export class Game {
     const S = FINANCE.shares;
     const fortune = S.chairmanFortune - S.initial * S.chairmanFraction * S.ipoPrice;
     this.investors = [new Chairman('You', fortune)];
-    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, charters: !world, boardVotes: true, ...settings };
+    this.settings = { wrecks: ECONOMY.wrecks.enabledByDefault, model: ECONOMY.model, rivals: 0, aiLevel: 'normal', friendlyAi: false, charters: !world, boardVotes: true, destinations: false, ...settings };
     const rivals = Math.max(0, Math.min(AI.barons.length, this.settings.rivals));
     for (let k = 0; k < rivals; k++) {
       const b = AI.barons[k];
@@ -340,7 +343,8 @@ export class Game {
     if (this.tick % TIME.ticksPerDay === 0) {
       const date = this.date;
       this.pruneUndo();
-      this.economy.daily();
+      const net = this.settings.destinations ? this.trains.network() : null;
+      this.economy.daily(net ? (sid, cargo) => (isDestinedCargo(cargo) ? net.shares(this.world, this.economy, sid, cargo) : null) : undefined, this.day);
       this.trains.daily();
       this.marketDaily();
       this.emit({ type: 'day', date });
@@ -348,6 +352,7 @@ export class Game {
         this.financeMonthly(date);
         this.monthly(date);
         this.trains.monthly();
+        if (this.settings.destinations) this.trains.network().refresh();
         this.chargeTrackMaintenance();
         for (const ai of this.ai) ai.monthly(this);
         this.stats.sample(this);
@@ -1042,6 +1047,7 @@ export class Game {
     if (bad) return { ok: false, error: bad, cost: 0 };
     const current = t.route[t.stop]?.station;
     t.route = route.map((r) => ({ ...r }));
+    this.trains.routesChanged();
     const idx = t.route.findIndex((r) => r.station === current);
     t.stop = idx >= 0 ? idx : 0;
     return { ok: true, cost: 0 };

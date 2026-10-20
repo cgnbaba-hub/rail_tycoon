@@ -86,7 +86,7 @@ export function adviceCount(): number {
 /** Formula of one delivered cargo, e.g. "$410 × 0.95 time × 0.80 demand × 1.10 econ × 1.00 bonus × 3 loads = $1,029". */
 export function quoteFormula(q: RevenueQuote): string {
   const f = (v: number) => v.toFixed(2);
-  return `${fmtMoney(Math.round(q.distancePay))}/load (base + ${q.miles.toFixed(0)} mi) × ${f(q.timeFactor)} time × ${f(q.demandFactor)} demand × ${f(q.economyFactor)} economy × ${f(q.bonusFactor)} bonus × ${q.loads} load${q.loads === 1 ? '' : 's'} = ${fmtMoney(Math.round(q.total))}`;
+  return `${fmtMoney(Math.round(q.distancePay))}/load (base + ${q.miles.toFixed(0)} mi) × ${f(q.timeFactor)} time × ${f(q.demandFactor)} demand × ${f(q.economyFactor)} economy × ${f(q.bonusFactor)} bonus × ${q.loads} load${q.loads === 1 ? '' : 's'} = ${fmtMoney(Math.round(q.total))}${q.transferred ? ` (${q.transferred} via transfer, paid from their first station)` : ''}`;
 }
 
 export interface AdvisorHost extends TrainUiHost {

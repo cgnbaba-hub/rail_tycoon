@@ -153,6 +153,20 @@ January: lose twice in a row and you are out. A company whose debts exceed its a
 bankrupt. You can raid rivals too: buy their shares and propose a merger in the Railroads
 window (`O`). Choose *friendly* rivals in the new-map dialog for a gentler game.
 
+**Transfers.** Tick *transfer* on a stop in the route editor and the train sets everything
+down there; any other train that can take it on (to a station that wants it, or to its own
+transfer stop) picks it up. A transferred load is paid only when it is delivered — from the
+station where it was first loaded, for the whole time on the way — and the money is shared
+between the trains by the distance each carried it. The station panel lists what waits to
+transfer; lots left for half a year are lost.
+
+**Passenger destinations** (new-map option *Passengers: destinations*, off by default). Every
+passenger and mail bag then wants to reach one particular station: one the trains can take it
+to with at most one change, bigger towns and nearer stations more likely. Travellers only
+board trains that get them there and change trains on their own where a connecting train
+calls (no transfer order needed). The station panel shows where its travellers are headed,
+the train panel who is aboard for where. Without a train to anywhere, nobody starts a journey.
+
 Single track carries one train per block between stations; double track lets trains pass
 anywhere. Steep grades slow heavy trains to a crawl. Pause any time — building works while
 paused, and construction can be undone for a full refund for a week of game time.
@@ -164,6 +178,7 @@ src/sim/     deterministic simulation (no DOM): rng, noise, world, mapgen, time,
              construction, trains, economy, cycle, growth, company, finance, chairman,
              ai (rival barons), rivals (mergers, bankruptcy, board vote), stats, advisor,
              overlays, fleet, events, modifiers, territories, layout (hand-made maps),
+             cargoflow (transfers, destinations),
              scenario, save, game
 src/audio/   chiptune composer and WebAudio engine (music + effects)
 src/render/  palette, iso projection, camera, software rasterizer, chunk renderer

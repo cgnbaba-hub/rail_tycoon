@@ -307,6 +307,51 @@ const OUT = process.argv[2] || 'screenshots';
   await page.selectOption('select[name="layout"]', 'oil_basin');
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${OUT}/42-map-picker.png` });
+  // 43–45. passenger destinations and transfers
+  await closeModal();
+  const flow = await page.evaluate(() => {
+    const app = window.ironBaron;
+    app.newGame({ ...app.game.params }, { rivals: 0, destinations: true });
+    const g = app.game;
+    app.setSpeed(0);
+    for (const r of g.territories.regions) r.chartered = true;
+    g.company.cash = 5e6;
+    const towns = [...g.world.cities].sort((a, b) => b.population - a.population).slice(0, 3);
+    const st = [];
+    for (const town of towns) {
+      for (const [dx, dy] of [[0, 3], [0, -3], [3, 0], [-3, 0], [0, 4], [4, 0], [2, 2], [-2, -2], [0, 5], [5, 0]]) {
+        const r = g.buildStation(town.x + dx, town.y + dy, 'station', 'x');
+        if (r.ok) { st.push(r.station); break; }
+      }
+    }
+    const opts = { double: false, bridge: 'auto', tunnels: true, demolish: true, year: 1850 };
+    const links = [];
+    for (let i = 0; i + 1 < st.length; i++) links.push(g.buildTrack(st[i].tiles[st[i].tiles.length - 1], st[i + 1].tiles[0], opts).ok);
+    const route = (a, b, tb) => [{ station: a.id, load: 'auto', waitFull: false }, { station: b.id, load: 'auto', waitFull: false, ...(tb ? { transfer: true } : {}) }];
+    g.buyTrain('columbia', ['passengers', 'passengers', 'mail', 'passengers'], route(st[0], st[1], true));
+    g.buyTrain('columbia', ['passengers', 'passengers', 'mail', 'passengers'], route(st[1], st[2]));
+    for (let i = 0; i < 24 * 150; i++) g.step();
+    const hub = st[1];
+    const W = g.world.width;
+    const mid = hub.tiles[1];
+    app.camera.zoomAt(app.canvas.width / 2, app.canvas.height / 2, 2);
+    app.camera.centerOn((mid % W) + 0.5, Math.floor(mid / W) + 0.5);
+    app.pinned = [mid % W, Math.floor(mid / W)];
+    app.invalidatePanel();
+    const sc = g.economy.cargoAt(hub.id);
+    return { st: st.map((s) => s.name), links, lots: (sc.transfer || []).length, dest: sc.dest, rev: g.company.revenueIn(g.year) };
+  });
+  console.log(JSON.stringify(flow));
+  await page.mouse.move(600, 880);
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${OUT}/43-destinations-hub.png` });
+  await page.evaluate(() => { const app = window.ironBaron; const t = app.game.trains.trains.find((x) => x.cars.some((c) => c.loads > 0)) || app.game.trains.trains[0]; app.selectTrain(t.id); });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${OUT}/44-train-bound-for.png` });
+  await page.click('[data-act="edit"]');
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/45-route-transfer.png` });
+
   console.log(logs.join('\n'));
   await browser.close();
 })();

@@ -279,6 +279,19 @@ Decisions made without asking (per the working rules). Revisit any of them on re
   fixed list of sensible lines per scenario, adds trains where cargo waits and plays to the
   deadline. It plays plainly, so its result is about bronze to silver; gold needs a better
   plan.
+- **Transfers are an order on a stop**, not a station type: the train sets everything down
+  there as lots that remember their first station, loading time, destination and the trains
+  that carried them. Payment waits for the final delivery and uses the whole distance and
+  time, so feeding a trunk line never loses money against a through train; the train
+  statistics split it by distance. A lot never goes straight back onto the train that set it
+  down, and only onto trains that can place it (a later stop wants it or transfers it again).
+- **Destinations are destinations, not paths:** new passengers and mail pick a station among
+  those reachable with at most one change (gravity: people served / (1 + distance/60)). The
+  station keeps them in buckets per destination; a train boards only those it can take there
+  (it calls there, or calls where a connecting train does). Changing trains reuses the
+  transfer lots. One change keeps it understandable and cheap to compute; the link graph is
+  rebuilt only when a route changes. Off by default (a toggle, as the spec asks), so
+  balancing and scenarios are unchanged.
 - **The tutorial is a scenario plus a step list** whose conditions read the game state
   (stations in the two towns, connected, a train, revenue, windows opened), so it can't get
   out of sync with what the player actually did.

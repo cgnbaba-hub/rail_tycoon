@@ -1130,6 +1130,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         <div class="row"><label>Rival skill</label>${sel('aiLevel', Object.keys(AI.levels), this.game?.settings.aiLevel ?? 'normal')}</div>
         <div class="row"><label>Rival attitude</label>${sel('friendly', ['ruthless', 'friendly'], this.game?.settings.friendlyAi ? 'friendly' : 'ruthless')}</div>
         <div class="row"><label>Territories</label>${sel('charters', ['charters', 'open'], this.game && !this.game.settings.charters ? 'open' : 'charters')}</div>
+        <div class="row" data-tip="Destinations: every passenger and mail bag wants to reach one station (changing trains at most once) instead of riding to any stop"><label>Passengers</label>${sel('dest', ['any stop', 'destinations'], this.game?.settings.destinations ? 'destinations' : 'any stop')}</div>
         <div class="row"><label>Board votes</label>${sel('board', ['on', 'off'], this.game && this.game.settings.boardVotes === false ? 'off' : 'on')}</div>
         <div class="row"><label>Wrecks</label>${sel('wrecks', ['on', 'off'], this.game ? (this.game.settings.wrecks ? 'on' : 'off') : ECONOMY.wrecks.enabledByDefault ? 'on' : 'off')}</div>
         <div class="row"><label for="ng-year">Start year</label>
@@ -1190,6 +1191,7 @@ export class App implements ToolHost, TrainUiHost, AdvisorHost {
         friendlyAi: fd.get('friendly') === 'friendly',
         charters: fd.get('charters') !== 'open',
         boardVotes: fd.get('board') !== 'off',
+        destinations: fd.get('dest') === 'destinations',
       };
       this.closeModal();
       withLoading('Surveying the land…', () => this.newGame(params, settings));

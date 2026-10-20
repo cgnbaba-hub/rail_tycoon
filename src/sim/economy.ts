@@ -38,6 +38,8 @@ export interface RevenueQuote {
   /** Station improvements and consist extras (hotel, dining car, …). */
   bonusFactor: number;
   total: number;
+  /** Loads that came via a transfer (paid from their first station). */
+  transferred?: number;
 }
 
 export interface QuoteExtras {
@@ -135,9 +137,28 @@ export function steadyDemand(loadsPerMonth: number, capacity: number, model: Eco
 // Station supply & demand
 // ---------------------------------------------------------------------------------------
 
+/** One load set down at a transfer stop, waiting for another train. */
+export interface TransferLot {
+  cargo: string;
+  /** Station it was first loaded at, and when (tick): payment counts from there. */
+  origin: number;
+  loadedTick: number;
+  /** Destination station (passenger/mail destinations), -1 = any. */
+  dest: number;
+  /** Trains that carried it so far and the distance (tiles) each covered. */
+  legs: Array<[number, number]>;
+  /** Day it was set down here. */
+  since: number;
+}
+
 export interface StationCargo {
-  /** Loads waiting, by cargo id (fractional while accumulating). */
+  /** Loads waiting, by cargo id (fractional while accumulating). With destinations on, the
+   *  passenger/mail totals are the sums of `dest`. */
   waiting: Record<string, number>;
+  /** Waiting passengers/mail by destination station (destinations mode). */
+  dest?: Record<string, Record<number, number>>;
+  /** Loads set down here by trains for other trains to pick up. */
+  transfer?: TransferLot[];
   /** Demand level per accepted cargo (missing = 1). */
   demand: Record<string, number>;
   /** Monthly demand-level history per cargo (newest last). */
@@ -356,8 +377,12 @@ export class Economy {
     return this.station(stationId)?.capacity[cargo] ?? SAT.minTownCapacity;
   }
 
-  /** Daily: supply trickles in (capped), demand recovers. */
-  daily(): void {
+  /**
+   * Daily: supply trickles in (capped), demand recovers. `split` (destinations mode) gives,
+   * for a station and cargo, the share of new travellers per destination station — an empty
+   * list means nobody can travel anywhere from there yet; null = no destinations for it.
+   */
+  daily(split?: (station: number, cargo: string) => Array<[number, number]> | null, day = 0): void {
     const recoverStep = Math.pow(0.5, 1 / SAT.recoveryHalfLifeDays);
     for (const [id, se] of this.stations()) {
       const sc = this.cargoAt(id);
@@ -365,9 +390,19 @@ export class Economy {
       for (const [cargo, base] of Object.entries(se.supply)) {
         const perMonth = base * cargoFactor(this.mods.supply, cargo);
         const inc = perMonth / DAYS_PER_MONTH;
-        sc.waiting[cargo] = Math.min(perMonth * cap, (sc.waiting[cargo] ?? 0) + inc);
+        const shares = split?.(id, cargo) ?? null;
+        if (shares) {
+          this.addDestined(sc, cargo, inc, shares, perMonth * cap);
+          if (!shares.length) continue;
+        } else {
+          sc.waiting[cargo] = Math.min(perMonth * cap, (sc.waiting[cargo] ?? 0) + inc);
+        }
         add(sc.suppliedMonth, cargo, inc);
         add(sc.suppliedYear, cargo, inc);
+      }
+      if (sc.transfer?.length) {
+        const T = ECONOMY.transfers;
+        sc.transfer = sc.transfer.filter((l) => day - l.since <= T.maxDays).slice(-T.maxLots);
       }
       for (const cargo of Object.keys(sc.demand)) {
         sc.demand[cargo] = 1 - (1 - sc.demand[cargo]) * recoverStep;
@@ -465,6 +500,60 @@ export class Economy {
       sc.suppliedYear = {};
     }
     this.invalidate();
+  }
+
+  /** New travellers spread over destinations; buckets for unreachable stations are dropped. */
+  private addDestined(sc: StationCargo, cargo: string, inc: number, shares: Array<[number, number]>, cap: number): void {
+    const buckets = ((sc.dest ??= {})[cargo] ??= {});
+    const live = new Set(shares.map(([d]) => d));
+    for (const k of Object.keys(buckets)) if (!live.has(Number(k))) delete buckets[Number(k)];
+    for (const [d, f] of shares) buckets[d] = (buckets[d] ?? 0) + inc * f;
+    let total = 0;
+    for (const v of Object.values(buckets)) total += v;
+    if (total > cap) {
+      for (const k of Object.keys(buckets)) buckets[Number(k)] *= cap / total;
+      total = cap;
+    }
+    sc.waiting[cargo] = total;
+  }
+
+  /**
+   * Take up to `max` whole loads of a destined cargo bound for stations `allow` accepts,
+   * fullest destination first. Returns the destination of each load taken.
+   */
+  takeDestined(stationId: number, cargo: string, max: number, allow: (dest: number) => boolean): number[] {
+    const sc = this.cargoAt(stationId);
+    const buckets = sc.dest?.[cargo];
+    const out: number[] = [];
+    if (!buckets) return out;
+    while (out.length < max) {
+      let best = -1;
+      let most = 1 - 1e-9;
+      for (const [k, v] of Object.entries(buckets)) {
+        const d = Number(k);
+        if (v >= most && (v > most || d < best) && allow(d)) {
+          best = d;
+          most = v;
+        }
+      }
+      if (best < 0) break;
+      buckets[best] -= 1;
+      sc.waiting[cargo] = Math.max(0, (sc.waiting[cargo] ?? 0) - 1);
+      out.push(best);
+    }
+    if (out.length) {
+      add(sc.pickedMonth, cargo, out.length);
+      add(sc.pickedYear, cargo, out.length);
+    }
+    return out;
+  }
+
+  /** Whole loads of a destined cargo waiting for destinations `allow` accepts. */
+  destinedAvailable(stationId: number, cargo: string, allow: (dest: number) => boolean): number {
+    const buckets = this.cargo.get(stationId)?.dest?.[cargo];
+    let n = 0;
+    if (buckets) for (const [k, v] of Object.entries(buckets)) if (allow(Number(k))) n += Math.floor(v + 1e-9);
+    return n;
   }
 
   /** Take up to `max` whole loads of a cargo from a station. */

@@ -176,3 +176,10 @@ economic cycle factors in the revenue formula (M4), transfers between trains (M7
 - [x] Scenario list with map previews (generated in a web worker), difficulty, map name and requirements; sandbox map picker with live preview; `?map=` URL parameter
 - [x] Board votes as a setting (off in the easy scenarios, switch in the new-map dialog); rivals widen their route range on sparse maps
 - [x] Tests: layouts (determinism, named towns, fixed industries, features, other sizes), every named requirement can be linked by rail, data validation
+
+## Transfers & passenger destinations (spec optional features 17 and 18)
+
+- [x] Transfer order per route stop: loads set down as lots (first station, loading time, destination, carrying trains); picked up by trains that can place them, never by the train that set them down; paid on final delivery over the whole distance and time; revenue split between trains by distance; lots spoil after half a year
+- [x] Passenger/mail destinations (new-map toggle): station links from train routes, destinations within one change weighted by people and distance, per-destination waiting buckets, boarding only towards reachable destinations, automatic change of trains at connecting stations
+- [x] UI: transfer checkbox in the route editor and route list, "via transfer" in delivery formulas, station panel lists travellers by destination and loads waiting to transfer, train panel shows who is bound where
+- [x] Tests: transfer delivery and payment over the full distance, revenue split, no hand-back, spoiling, save round-trip; destinations off by default, shares, change of trains at a hub, no journeys without a train
